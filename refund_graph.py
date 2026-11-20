@@ -52,6 +52,7 @@ QUESTIONS = {
 STANDARD_FIELDS = ("teslimattan_sonra_gun", "kullanildi", "aksesuarlar_tam")
 DAMAGE_FIELDS = ("siparis_no_var", "urun_fotografi_var", "ambalaj_fotografi_var")
 STANDARD_SOURCES = ("IADE-POL#P1", "DESTEK-REH#R1")
+STANDARD_RETURN_DAYS = 30
 
 
 class RefundState(TypedDict, total=False):
@@ -120,7 +121,7 @@ def build_prompt(state):
     days = facts.get("teslimattan_sonra_gun")
     # This interpretation is specific to the reviewed version of the demo policy.
     eligibility = {
-        "30 günlük sürenin aşılması": days is not None and days > 30,
+        "30 günlük sürenin aşılması": days is not None and days > STANDARD_RETURN_DAYS,
         "ürünün kullanılmış olması": facts.get("kullanildi") is True,
         "aksesuarların eksik olması": facts.get("aksesuarlar_tam") is False,
     }
@@ -156,6 +157,12 @@ def build_prompt(state):
             "Kutunun açılması tek başına iadeye engel değildir. "
             "Hesabım → Siparişlerim → İade Talebi adımlarını izleyebilirsiniz."
         )
+        if days == STANDARD_RETURN_DAYS:
+            guidance += " Bugünün iade süresinin son günü olduğunu ve bugün başvurabileceğini belirt."
+            example = (
+                "Merhaba, bugün iade süresinin son günü. "
+                "İade talebinizi bugün Hesabım → Siparişlerim → İade Talebi üzerinden oluşturabilirsiniz."
+            )
     prompt = (
         f"{facts.get('urun') or 'İade edilen ürün'} için müşteriye kısa ve nazik bir Türkçe mesaj taslağı yaz. "
         f"{reason} {guidance} "

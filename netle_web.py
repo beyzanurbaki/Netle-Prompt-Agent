@@ -24,6 +24,7 @@ FLOW_LABELS = {"standard": "Standart iade", "damage": "Hasarlı teslimat",
 def extract_facts(words):
     facts = {}
     days = re.findall(r"\b(\d{1,4})\s*(?:takvim\s+)?gün\s+(?:önce teslim|geçti\b|oldu\b)", words)
+    days += re.findall(r"\bbugün\s+(\d{1,4})\.\s*(?:takvim\s+)?gün\b", words)
     if len(set(days)) == 1:
         facts["teslimattan_sonra_gun"] = int(days[0])
     elif not days and re.search(r"\bdün teslim\b", words):
