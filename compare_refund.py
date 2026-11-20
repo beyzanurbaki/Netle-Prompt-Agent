@@ -7,9 +7,10 @@ from contextlib import closing
 from uuid import uuid4
 
 from netle import CREATE_CALLS
-from rag import DATA_DIR, embed, embed_documents, load_chunks, rank, scenario_query
+from rag import DATA_DIR, embed, embed_documents, rank, scenario_query
 from refund_demo import chat
 from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, required_sources
+from source_validation import load_reviewed_sources
 
 
 CREATE_ANSWERS = """
@@ -96,7 +97,7 @@ def main():
             scenarios = [scenario for scenario in scenarios if scenario["id"] == args.scenario]
         if not scenarios:
             raise ValueError("Senaryo bulunamadı.")
-        chunks = load_chunks(DATA_DIR / "belgeler")
+        chunks = load_reviewed_sources(DATA_DIR / "belgeler")
         with closing(sqlite3.connect(args.db)) as db:
             db.execute(CREATE_CALLS)
             db.execute(CREATE_ANSWERS)

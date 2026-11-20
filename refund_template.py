@@ -9,8 +9,9 @@ from dataclasses import asdict
 from uuid import uuid4
 
 from netle import CREATE_CALLS
-from rag import DATA_DIR, load_chunks
+from rag import DATA_DIR
 from refund_demo import chat
+from source_validation import load_reviewed_sources
 
 
 NAME = "standart-iade"
@@ -44,12 +45,10 @@ def digest(value):
 
 
 def current_sources():
-    chunks = {chunk.source: chunk for chunk in load_chunks(DATA_DIR / "belgeler")}
+    chunks = {chunk.source: chunk for chunk in load_reviewed_sources(DATA_DIR / "belgeler", REVIEWED_VERSIONS)}
     sources = []
     for source_id in REVIEWED_VERSIONS:
-        chunk = chunks.get(source_id)
-        if chunk is None:
-            raise ValueError(f"Dayanak bölüm bulunamadı: {source_id}")
+        chunk = chunks[source_id]
         metadata = asdict(chunk)
         metadata["sha256"] = digest(metadata.pop("text"))
         sources.append(metadata)

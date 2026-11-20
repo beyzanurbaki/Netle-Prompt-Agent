@@ -14,8 +14,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from netle import CREATE_CALLS
-from rag import DATA_DIR, embed, embed_documents, load_chunks, rank, scenario_query
+from rag import DATA_DIR, embed, embed_documents, rank, scenario_query
 from refund_demo import chat
+from source_validation import load_reviewed_sources
 
 
 CUSTOMER_MESSAGE_RULE = (
@@ -183,19 +184,18 @@ def required_sources(state):
 
 def make_graph(db, saver):
     def retrieve(state):
-        chunks = load_chunks(DATA_DIR / "belgeler")
+        required = required_sources(state)
+        chunks = load_reviewed_sources(DATA_DIR / "belgeler", required)
         session_id, model = state["session_id"], state["embed_model"]
         vectors = embed_documents(db, session_id, model, chunks)
         query, = embed(db, session_id, model, [
             scenario_query(state["scenario"], clarified=False)
         ], "embed_query")
         hits = {chunk.source: chunk for chunk, _ in rank(query, chunks, vectors)}
-        required = required_sources(state)
-        if any(source not in hits or hits[source].version != "1.0" for source in required):
-            raise ValueError("Bu iade akışı için incelenmiş v1.0 kaynakları bulunamadı.")
         return {"sources": [asdict(hits[source]) for source in required]}
 
     def generate(state):
+        load_reviewed_sources(DATA_DIR / "belgeler", required_sources(state))
         if state.get("preserve_reviewed_message"):
             reviewed = state["reviewed_message"]
             draft = chat(
