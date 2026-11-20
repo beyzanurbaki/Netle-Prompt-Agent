@@ -1,0 +1,4 @@
+/netle.sqlite3*
+/__pycache__/
+/.netle-deps/
+/.venv/

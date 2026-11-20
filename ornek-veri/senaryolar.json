@@ -1,0 +1,44 @@
+[
+  {
+    "id": "I01",
+    "ilk_istek": "Müşteriye lambayı iade edebileceğini söyle. Kutusu açılmış.",
+    "ilk_bilgiler": {"urun": "Masa lambası", "kutu_acik": true, "iade_nedeni": "Fikir değişikliği"},
+    "ek_bilgiler": {"teslimattan_sonra_gun": 12, "kullanildi": false, "aksesuarlar_tam": true},
+    "referans": {"durum": "standart_iade_uygun", "kaynaklar": ["IADE-POL#P1", "DESTEK-REH#R1"], "taslak": "Merhaba, kutu açılmış olsa da kullanılmamış ve aksesuarları eksiksiz olan lambanız için iade talebi oluşturabilirsiniz. Hesabım → Siparişlerim → İade Talebi adımlarını izleyebilirsiniz."}
+  },
+  {
+    "id": "I02",
+    "ilk_istek": "Havlusunu iade etmek isteyen müşteriye cevap yaz.",
+    "ilk_bilgiler": {"urun": "Havlu", "hijyen_muhurlu": true, "teslimattan_sonra_gun": 7, "iade_nedeni": "Fikir değişikliği"},
+    "ek_bilgiler": {"hijyen_muhru_acik": true},
+    "referans": {"durum": "standart_iade_uygun_degil", "kaynaklar": ["IADE-POL#P2"], "taslak": "Merhaba, ürününüzün hijyen mührü açıldığı için standart iade talebinizi kabul edemiyoruz."}
+  },
+  {
+    "id": "I03",
+    "ilk_istek": "Vazo kırık geldi ama teslimatın üstünden 32 gün geçmiş. Ne yazalım?",
+    "ilk_bilgiler": {"urun": "Vazo", "iade_nedeni": "Teslimatta hasar", "teslimattan_sonra_gun": 32, "siparis_no": "TEST-103"},
+    "ek_bilgiler": {"fotograflar_mevcut": false},
+    "referans": {"durum": "hasar_incelemesi", "kaynaklar": ["IADE-POL#P3", "DESTEK-REH#R2"], "taslak": "Merhaba, vazonuzun hasarlı ulaşmasına üzüldük. TEST-103 numaralı siparişinizi inceleyebilmemiz için hasarlı vazoyu ve dış ambalajı gösteren fotoğrafları paylaşabilir misiniz?"}
+  },
+  {
+    "id": "I04",
+    "ilk_istek": "Kullanılmamış ve aksesuarları tam olan abajur için bugün 30. gün. İade yanıtı yaz.",
+    "ilk_bilgiler": {"urun": "Abajur", "teslimattan_sonra_gun": 30, "kullanildi": false, "aksesuarlar_tam": true, "iade_nedeni": "Fikir değişikliği"},
+    "ek_bilgiler": {},
+    "referans": {"durum": "standart_iade_uygun", "kaynaklar": ["IADE-POL#P1", "DESTEK-REH#R1"], "taslak": "Merhaba, bugün iade süresinin son günü. Ürününüz kullanılmamış ve aksesuarları eksiksiz olduğu için Hesabım → Siparişlerim → İade Talebi üzerinden bugün başvurabilirsiniz."}
+  },
+  {
+    "id": "I05",
+    "ilk_istek": "Müşteri halısını iade etmek istiyor. Teslimat tarihini bulamadık.",
+    "ilk_bilgiler": {"urun": "Halı", "kullanildi": false, "aksesuarlar_tam": true, "iade_nedeni": "Fikir değişikliği"},
+    "ek_bilgiler": {"teslimattan_sonra_gun": null},
+    "referans": {"durum": "bilgi_eksik", "kaynaklar": ["IADE-POL#P1", "DESTEK-REH#R1"], "taslak": "Merhaba, iade talebinizi değerlendirebilmemiz için halının size hangi tarihte teslim edildiğini paylaşabilir misiniz?"}
+  },
+  {
+    "id": "I06",
+    "ilk_istek": "Teslimattan 31 gün sonra fikir değişikliği nedeniyle gelen iade talebini yanıtla.",
+    "ilk_bilgiler": {"urun": "Saksı", "teslimattan_sonra_gun": 31, "iade_nedeni": "Fikir değişikliği"},
+    "ek_bilgiler": {},
+    "referans": {"durum": "standart_iade_uygun_degil", "kaynaklar": ["IADE-POL#P1"], "taslak": "Merhaba, standart iade süremiz teslimattan itibaren 30 takvim günüdür. Talebiniz 31. günde ulaştığı için standart iade işlemi başlatamıyoruz."}
+  }
+]
