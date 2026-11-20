@@ -117,11 +117,12 @@ def build_prompt(state):
     facts = state["facts"]
     if state.get("flow") == "damage" or facts.get("hijyen_muhru_acik") is True:
         return special_prompt(state)
+    days = facts.get("teslimattan_sonra_gun")
     # This interpretation is specific to the reviewed version of the demo policy.
     eligibility = {
-        "30 günlük sürenin aşılması": facts["teslimattan_sonra_gun"] > 30,
-        "ürünün kullanılmış olması": facts["kullanildi"],
-        "aksesuarların eksik olması": not facts["aksesuarlar_tam"],
+        "30 günlük sürenin aşılması": days is not None and days > 30,
+        "ürünün kullanılmış olması": facts.get("kullanildi") is True,
+        "aksesuarların eksik olması": facts.get("aksesuarlar_tam") is False,
     }
     unmet = [reason for reason, applies in eligibility.items() if applies]
     if unmet:
@@ -131,6 +132,16 @@ def build_prompt(state):
             "Merhaba, iade talebinizi inceledik. Şu nedenle standart iade koşulları "
             f"karşılanmıyor: {', '.join(unmet)}. Anlayışınız için teşekkür ederiz."
         )
+    elif fields := missing_fields(state):
+        missing = {
+            "teslimattan_sonra_gun": "ürünü hangi tarihte teslim aldığınızı",
+            "kullanildi": "ürünü kullanıp kullanmadığınızı",
+            "aksesuarlar_tam": "aksesuarların eksiksiz olup olmadığını",
+        }
+        reason = "Standart iade uygunluğunu değerlendirmek için bilgi eksik."
+        guidance = "Sadece eksik bilgileri iste ve iade kararı verme."
+        details = ", ".join(missing[field] for field in fields)
+        example = f"Merhaba, iade talebinizi değerlendirebilmemiz için {details} paylaşabilir misiniz?"
     else:
         reason = (
             f"Teslimattan sonra {facts['teslimattan_sonra_gun']} gün geçmiş. "
@@ -153,6 +164,16 @@ def build_prompt(state):
     return {"prompt": prompt, "reason": reason, "reviewed_message": example}
 
 
+def required_sources(state):
+    flow = state.get("flow", "standard")
+    if flow == "damage":
+        return ("IADE-POL#P3", "DESTEK-REH#R2")
+    if flow == "hygiene":
+        hygiene = ("IADE-POL#P2",)
+        return hygiene + STANDARD_SOURCES if state["facts"].get("hijyen_muhru_acik") is False else hygiene
+    return STANDARD_SOURCES
+
+
 def make_graph(db, saver):
     def retrieve(state):
         chunks = load_chunks(DATA_DIR / "belgeler")
@@ -162,14 +183,7 @@ def make_graph(db, saver):
             scenario_query(state["scenario"], clarified=False)
         ], "embed_query")
         hits = {chunk.source: chunk for chunk, _ in rank(query, chunks, vectors)}
-        flow = state.get("flow", "standard")
-        required = STANDARD_SOURCES
-        if flow == "damage":
-            required = ("IADE-POL#P3", "DESTEK-REH#R2")
-        elif flow == "hygiene":
-            required = ("IADE-POL#P2",)
-            if state["facts"].get("hijyen_muhru_acik") is False:
-                required += STANDARD_SOURCES
+        required = required_sources(state)
         if any(source not in hits or hits[source].version != "1.0" for source in required):
             raise ValueError("Bu iade akışı için incelenmiş v1.0 kaynakları bulunamadı.")
         return {"sources": [asdict(hits[source]) for source in required]}

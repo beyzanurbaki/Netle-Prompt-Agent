@@ -35,13 +35,14 @@ python refund_graph.py resume OTURUM_KIMLIGI --days 12 --used no --accessories y
 
 İlk komutun ardından `start` kaynakları bulur, eksik bilgileri gösterir ve oturumu SQLite'a kaydeder. `resume` komutundaki `OTURUM_KIMLIGI` yerine ekrandaki kimliği yaz. Örnekteki yanıt değerleri I01'in ek bilgilerine karşılık gelir. Aynı veritabanını kullanarak yeni bir terminalden de devam edebilirsin. Akış I01 ve örnek belgelerin 1.0 sürümü için hazırlanmıştır.
 
-## I01 prompt karşılaştırması
+## Prompt karşılaştırması
 
 ```powershell
 python compare_refund.py
+python compare_refund.py --all
 ```
 
-Üç taslak aynı üretim modeli ve ayarlarla üretilir. İlk istek tek başına çalışır. Doğrudan RAG ve Netle aynı doğrulanmış görev bilgilerini ve aynı kaynak parçalarını alır. Netle, LangGraph pilotundaki kurallı promptu ve içindeki örnek mesajı kullanır. Ortak embedding işlemleri bir kez çalışır ve üretim çağrılarından ayrı kaydedilir.
+Üç taslak aynı üretim modeli ve ayarlarla üretilir. İlk istek tek başına çalışır. Doğrudan RAG ve Netle aynı doğrulanmış görev bilgilerini ve ilgili akışın aynı kaynak parçalarını alır. Netle, LangGraph pilotundaki kurallı promptu kullanır. Model çıktısı incelenmiş müşteri mesajından farklıysa arayüzde olduğu gibi o mesaj gösterilir ve bu seçim SQLite'ta işaretlenir. Referans yanıtlar sadece değerlendirme içindir. Ortak embedding işlemleri üretim çağrılarından ayrı kaydedilir. Taslaklar `comparison_answers`, çağrı ölçümleri `model_calls` tablosundadır.
 
 Her yanıtı üç ölçütte 0–2 arasında puanla (0 karşılamıyor, 1 kısmen, 2 karşılıyor).
 

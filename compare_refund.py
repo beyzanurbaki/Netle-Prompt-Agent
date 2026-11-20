@@ -1,4 +1,4 @@
-"""Compare the original request, direct RAG and Netle for the I01 scenario."""
+"""Compare the original request, direct RAG and Netle on the refund fixtures."""
 
 import argparse
 import json
@@ -7,71 +7,103 @@ from contextlib import closing
 from uuid import uuid4
 
 from netle import CREATE_CALLS
-from rag import DATA_DIR, embed, load_chunks, rank, scenario_query
+from rag import DATA_DIR, embed, embed_documents, load_chunks, rank, scenario_query
 from refund_demo import chat
-from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, customer_message
+from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, required_sources
+
+
+CREATE_ANSWERS = """
+CREATE TABLE IF NOT EXISTS comparison_answers (
+    run_id TEXT NOT NULL,
+    scenario_id TEXT NOT NULL,
+    method TEXT NOT NULL,
+    draft TEXT NOT NULL,
+    used_reviewed_message INTEGER NOT NULL,
+    sources_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, scenario_id, method)
+)
+"""
+
+
+def comparison_state(facts):
+    if facts.get("iade_nedeni") == "Teslimatta hasar":
+        photos = facts.get("fotograflar_mevcut")
+        return {"flow": "damage", "facts": {
+            **facts, "siparis_no_var": bool(facts.get("siparis_no")),
+            "urun_fotografi_var": photos, "ambalaj_fotografi_var": photos,
+        }}
+    return {"flow": "hygiene" if facts.get("hijyen_muhurlu") else "standard", "facts": facts}
+
+
+def compare(db, args, run_id, scenario, chunks, vectors):
+    scenario_id = scenario["id"]
+    call_id = f"{run_id}:{scenario_id}"
+    facts = {**scenario["ilk_bilgiler"], **scenario["ek_bilgiler"]}
+    state = comparison_state(facts)
+    query, = embed(db, call_id, args.embed_model, [scenario_query(scenario, clarified=True)],
+                   "compare_embed_query")
+    ranked = [chunk for chunk, _ in rank(query, chunks, vectors)]
+    required = set(required_sources(state))
+    sources = [chunk for chunk in ranked if chunk.source in required and chunk.version == "1.0"]
+    if {chunk.source for chunk in sources} != required:
+        raise ValueError(f"{scenario_id} için incelenmiş v1.0 kaynakları eksik.")
+    source_ids = [chunk.source for chunk in sources]
+    context = (
+        f"Doğrulanmış bilgiler:\n{json.dumps(facts, ensure_ascii=False)}\n\nŞirket kaynakları:\n"
+        + "\n\n".join(f"[{chunk.source} · v{chunk.version}] {chunk.title}\n{chunk.text}" for chunk in sources)
+    )
+    improved = build_prompt(state)
+    methods = [
+        ("original", scenario["ilk_istek"], []),
+        ("direct_rag", f"{scenario['ilk_istek']}\n\n{context}", source_ids),
+        ("netle", f"{context}\n\nGörev:\n{improved['prompt']}", source_ids),
+    ]
+    print(f"\n{scenario_id} · Ortak kaynaklar: {', '.join(source_ids)}")
+    for method, prompt, method_sources in methods:
+        operation = f"compare_{method}"
+        raw = chat(db, call_id, args.chat_model, operation, CUSTOMER_MESSAGE_RULE, prompt)
+        use_reviewed = method == "netle" and raw != improved["reviewed_message"]
+        draft = improved["reviewed_message"] if use_reviewed else raw
+        with db:
+            db.execute(
+                "INSERT INTO comparison_answers VALUES (?, ?, ?, ?, ?, ?)",
+                (run_id, scenario_id, method, draft, use_reviewed,
+                 json.dumps(method_sources, ensure_ascii=False)),
+            )
+        metrics = db.execute(
+            "SELECT input_tokens, output_tokens, elapsed_ms FROM model_calls "
+            "WHERE run_id = ? AND operation = ? ORDER BY id DESC LIMIT 1",
+            (call_id, operation),
+        ).fetchone()
+        print(f"\n{method} · {metrics[0]} girdi + {metrics[1]} çıktı · {metrics[2]:.1f} ms"
+              f"{' · incelenmiş mesaj' if use_reviewed else ''}\n{draft}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="I01 iade yanıtlarını karşılaştır")
+    parser = argparse.ArgumentParser(description="İade yanıtlarını karşılaştır")
+    cases = parser.add_mutually_exclusive_group()
+    cases.add_argument("--all", action="store_true", help="Altı örnek iade senaryosunu çalıştır")
+    cases.add_argument("--scenario", default="I01")
     parser.add_argument("--chat-model", default="qwen2.5:1.5b")
     parser.add_argument("--embed-model", default="embeddinggemma:latest")
     parser.add_argument("--db", default="netle.sqlite3")
     args = parser.parse_args()
     run_id = uuid4().hex
     print(f"Karşılaştırma: {run_id}", flush=True)
-
     try:
         scenarios = json.loads((DATA_DIR / "senaryolar.json").read_text(encoding="utf-8"))
-        scenario = next(item for item in scenarios if item["id"] == "I01")
-        facts = {**scenario["ilk_bilgiler"], **scenario["ek_bilgiler"]}
-        query = scenario_query(scenario, clarified=True)
+        if not args.all:
+            scenarios = [scenario for scenario in scenarios if scenario["id"] == args.scenario]
+        if not scenarios:
+            raise ValueError("Senaryo bulunamadı.")
         chunks = load_chunks(DATA_DIR / "belgeler")
-        system = CUSTOMER_MESSAGE_RULE
-
         with closing(sqlite3.connect(args.db)) as db:
             db.execute(CREATE_CALLS)
-            vectors = embed(db, run_id, args.embed_model, [
-                f"{chunk.title}\n{chunk.text}" for chunk in chunks
-            ], "compare_embed_index")
-            vector, = embed(db, run_id, args.embed_model, [query], "compare_embed_query")
-            hits = rank(vector, chunks, vectors)[:3]
-            required_sources = {"IADE-POL#P1", "DESTEK-REH#R1"}
-            reviewed_sources = {chunk.source for chunk, _ in hits if chunk.version == "1.0"}
-            if not required_sources.issubset(reviewed_sources):
-                raise ValueError("I01 için incelenmiş v1.0 politika ve rehber kaynakları bulunamadı.")
-
-            sources = "\n\n".join(
-                f"[{chunk.source} · v{chunk.version}] {chunk.title}\n{chunk.text}"
-                for chunk, _ in hits
-            )
-            print("\nOrtak kaynaklar: " + ", ".join(chunk.source for chunk, _ in hits))
-            context = (
-                f"Doğrulanmış bilgiler:\n{json.dumps(facts, ensure_ascii=False)}"
-                f"\n\nŞirket kaynakları:\n{sources}"
-            )
-            netle_prompt = build_prompt({"facts": facts})["prompt"]
-            methods = [
-                ("compare_original", "İlk istek", scenario["ilk_istek"]),
-                ("compare_direct_rag", "Doğrudan RAG", f"{scenario['ilk_istek']}\n\n{context}"),
-                ("compare_netle", "Netle", f"{context}\n\nGörev:\n{netle_prompt}"),
-            ]
-            for operation, label, prompt in methods:
-                draft = chat(db, run_id, args.chat_model, operation, system, prompt)
-                if operation == "compare_netle":
-                    message = customer_message(draft)
-                    if message != draft:
-                        print("\nNetle: Müşteri mesajının sonuna eklenen iç bölüm çıkarıldı.")
-                    draft = message
-                print(f"\n{label}\n{draft}")
-
-            print("\nÇağrı ölçümleri")
-            for operation, input_tokens, output_tokens, elapsed_ms in db.execute(
-                "SELECT operation, input_tokens, output_tokens, elapsed_ms "
-                "FROM model_calls WHERE run_id = ? ORDER BY id", (run_id,),
-            ):
-                print(f"- {operation}: girdi={input_tokens}, çıktı={output_tokens}, {elapsed_ms:.1f} ms")
-    except (OSError, ValueError, KeyError, IndexError, TypeError, StopIteration, sqlite3.Error) as error:
+            db.execute(CREATE_ANSWERS)
+            vectors = embed_documents(db, run_id, args.embed_model, chunks)
+            for scenario in scenarios:
+                compare(db, args, run_id, scenario, chunks, vectors)
+    except (OSError, ValueError, KeyError, IndexError, TypeError, sqlite3.Error) as error:
         parser.exit(1, f"Karşılaştırma başarısız ({run_id}): {error}\n")
 
 
