@@ -20,4 +20,6 @@ Arayüz standart iade, hasarlı teslimat ve hijyen mühürlü ürün akışları
 
 Belge vektörleri ilk aramada SQLite'a yazılır. Netle, kaynakların içeriği ve sürümü ile Ollama embedding modelinin kimliği aynı kaldığı sürece kaydedilen vektörleri kullanır. Her yeni isteğin sorgu vektörü ayrıca hesaplanır.
 
+**Prompt şablonları** bölümünde standart iade şablonunu kaynak sürümleriyle birlikte önizleyip onaylayabilirsin. Daha önce onaylanan şablonlar aynı SQLite dosyasından yüklenir. Ürün bilgilerini doldurup **Şablonla taslak oluştur** seçeneğini kullan. Kaynağı değişen şablonlar yeniden inceleme bekler. **Token ve süre ölçümleri** müşteri taslağından ayrı gösterilir.
+
 [Örnek veriler ve terminal demoları](ornek-veri/README.md)

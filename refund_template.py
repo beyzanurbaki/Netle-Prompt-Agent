@@ -65,6 +65,19 @@ def proposal():
     return approval_id, sources_json
 
 
+def approve_template(db, approval_id):
+    expected_id, sources_json = proposal()
+    if approval_id != expected_id:
+        raise ValueError("Onay kimliği güncel önizlemeyle eşleşmiyor.")
+    with db:
+        db.execute(CREATE_TEMPLATES)
+        db.execute(
+            "INSERT INTO prompt_templates (approval_id, name, prompt, sources_json) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(approval_id) DO NOTHING",
+            (approval_id, NAME, TEMPLATE, sources_json),
+        )
+
+
 def render(db, approval_id, answers):
     row = db.execute(
         "SELECT prompt, sources_json FROM prompt_templates WHERE approval_id = ?", (approval_id,)
@@ -104,17 +117,9 @@ def main():
             return
 
         if args.action == "approve":
-            approval_id, sources_json = proposal()
-            if args.approval_id != approval_id:
-                raise ValueError("Onay kimliği güncel önizlemeyle eşleşmiyor.")
-            with closing(sqlite3.connect(args.db)) as db, db:
-                db.execute(CREATE_TEMPLATES)
-                db.execute(
-                    "INSERT INTO prompt_templates (approval_id, name, prompt, sources_json) "
-                    "VALUES (?, ?, ?, ?) ON CONFLICT(approval_id) DO NOTHING",
-                    (approval_id, NAME, TEMPLATE, sources_json),
-                )
-            print(f"Onaylı şablon kaydedildi: {NAME} ({approval_id})")
+            with closing(sqlite3.connect(args.db)) as db:
+                approve_template(db, args.approval_id)
+            print(f"Onaylı şablon kaydedildi: {NAME} ({args.approval_id})")
             return
 
         if args.days is not None and args.days < 0:

@@ -13,7 +13,9 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from netle import CREATE_CALLS
-from refund_graph import make_graph
+from refund_demo import chat
+from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, make_graph
+from refund_template import CREATE_TEMPLATES, NAME, TEMPLATE, approve_template, current_sources, proposal, render
 
 
 PAGE = Path(__file__).with_name("netle_web.html")
@@ -133,20 +135,97 @@ def reply(db_path, payload):
                         raise ValueError("Eksik sorulara Evet veya Hayır yanıtı ver.")
                 command = Command(resume={field: answers[field] for field in questions})
             elif state.values.get("draft"):
-                return present(state.values, session_id)
+                return present(db, state.values, session_id)
             else:
                 raise ValueError("Devam edilebilecek bir iade oturumu bulunamadı.")
         result = graph.invoke(command, config)
-    return present(result, session_id)
+        return present(db, result, session_id)
 
 
-def present(result, session_id):
+def usage(db, run_id):
+    return [
+        dict(operation=operation, input_tokens=input_tokens, output_tokens=output_tokens,
+             elapsed_ms=elapsed_ms, status=status)
+        for operation, input_tokens, output_tokens, elapsed_ms, status in db.execute(
+            "SELECT operation, input_tokens, output_tokens, elapsed_ms, status "
+            "FROM model_calls WHERE run_id = ? ORDER BY id", (run_id,),
+        )
+    ]
+
+
+def source_label(item):
+    return f"{item['source']} · {item['title']} · v{item['version']}"
+
+
+def present(db, result, session_id):
     response = {"session_id": session_id, "flow": FLOW_LABELS[result.get("flow", "standard")]}
     if result.get("__interrupt__"):
         return {**response, "questions": result["__interrupt__"][0].value}
     return {**response, "draft": result["draft"], "prompt": result["prompt"],
-            "sources": [f"{item['source']} · {item['title']} · v{item['version']}"
-                        for item in result["sources"]]}
+            "sources": [source_label(item) for item in result["sources"]],
+            "usage": usage(db, session_id)}
+
+
+def template_action(db_path, payload):
+    action = payload.get("action")
+    if action == "preview":
+        approval_id, sources_json = proposal()
+        return {"approval_id": approval_id, "name": NAME, "prompt": TEMPLATE,
+                "sources": [source_label(item) for item in json.loads(sources_json)]}
+    with closing(sqlite3.connect(db_path)) as db:
+        db.execute(CREATE_TEMPLATES)
+        if action == "list":
+            try:
+                sources = current_sources()
+            except (ValueError, OSError):
+                sources = None
+            return {"templates": [
+                {"approval_id": key, "name": name, "approved_at": approved_at,
+                 "available": json.loads(stored) == sources}
+                for key, name, approved_at, stored in db.execute(
+                    "SELECT approval_id, name, approved_at, sources_json FROM prompt_templates "
+                    "ORDER BY approved_at DESC, approval_id"
+                )
+            ]}
+        if action == "approve":
+            approve_template(db, payload["approval_id"])
+            return {"approved": True}
+        if action != "use":
+            raise ValueError("Bilinmeyen şablon işlemi.")
+
+        product = payload.get("product", "").strip()
+        days = payload.get("days")
+        if not product or len(product) > 120 or len(product.splitlines()) != 1:
+            raise ValueError("Ürün adı 1–120 karakter ve tek satır olmalı.")
+        if days is not None and (type(days) is not int or not 0 <= days <= 9999):
+            raise ValueError("Gün sayısı 0–9999 arasında bir tam sayı olmalı.")
+        facts = {"urun": product, "teslimattan_sonra_gun": days}
+        labels = {True: "Evet", False: "Hayır", None: "Bilinmiyor"}
+        fields = ("kullanildi", "aksesuarlar_tam", "kutu_acik")
+        for field in fields:
+            value = payload.get(field)
+            if value is not None and type(value) is not bool:
+                raise ValueError("Ürün bilgileri için Evet, Hayır veya Bilinmiyor seç.")
+            facts[field] = value
+        approval_id = payload["approval_id"]
+        prompt = render(db, approval_id, {
+            **facts, **{field: labels[facts[field]] for field in fields},
+            "teslimattan_sonra_gun": days if days is not None else "Bilinmiyor",
+        })
+        stored_sources, = db.execute(
+            "SELECT sources_json FROM prompt_templates WHERE approval_id = ?", (approval_id,)
+        ).fetchone()
+        reviewed = build_prompt({"facts": facts})["reviewed_message"]
+        run_id = uuid4().hex
+        db.execute(CREATE_CALLS)
+        draft = chat(
+            db, run_id, "qwen2.5:1.5b", "template_generate_draft",
+            CUSTOMER_MESSAGE_RULE + " Son satırdaki müşteri mesajını aynen döndür.",
+            f"{prompt}\n\nMüşteri mesajı:\n{reviewed}",
+        )
+        return {"flow": "Onaylı şablon", "draft": draft if draft == reviewed else reviewed,
+                "prompt": prompt, "sources": [source_label(item) for item in json.loads(stored_sources)],
+                "usage": usage(db, run_id), "session_id": run_id}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -165,14 +244,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_content(200, "text/html; charset=utf-8", PAGE.read_bytes())
 
     def do_POST(self):
-        if self.path != "/api/refund":
+        actions = {"/api/refund": reply, "/api/templates": template_action}
+        action = actions.get(self.path)
+        if action is None:
             self.send_error(404)
             return
         try:
             length = int(self.headers.get("Content-Length", 0))
             if self.headers.get_content_type() != "application/json" or not 0 < length <= 16000:
                 raise ValueError("Geçersiz istek.")
-            result = reply(self.server.db_path, json.loads(self.rfile.read(length)))
+            result = action(self.server.db_path, json.loads(self.rfile.read(length)))
             status = 200
         except (ValueError, TypeError, AttributeError, KeyError) as error:
             status, result = 400, {"error": str(error)}
