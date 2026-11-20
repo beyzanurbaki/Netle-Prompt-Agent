@@ -14,7 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from netle import CREATE_CALLS
-from rag import DATA_DIR, embed, load_chunks, rank, scenario_query
+from rag import DATA_DIR, embed, embed_documents, load_chunks, rank, scenario_query
 from refund_demo import chat
 
 
@@ -112,9 +112,7 @@ def make_graph(db, saver):
     def retrieve(state):
         chunks = load_chunks(DATA_DIR / "belgeler")
         session_id, model = state["session_id"], state["embed_model"]
-        vectors = embed(db, session_id, model, [
-            f"{chunk.title}\n{chunk.text}" for chunk in chunks
-        ], "embed_index")
+        vectors = embed_documents(db, session_id, model, chunks)
         query, = embed(db, session_id, model, [
             scenario_query(state["scenario"], clarified=False)
         ], "embed_query")

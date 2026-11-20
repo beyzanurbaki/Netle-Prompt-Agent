@@ -15,4 +15,6 @@ Tarayıcıdan [Netle’yi aç](http://127.0.0.1:8000). Örneğin “Müşteri ka
 
 Arayüz standart iade pilotu içindir. Serbest metindeki açık gün, kullanım ve aksesuar ifadelerini tanır. Bilgi eksikse veya tanınmıyorsa soru gösterir. LangGraph oturumu ve model çağrısı ölçümleri yerel SQLite dosyasına kaydedilir.
 
+Belge vektörleri ilk aramada SQLite'a yazılır. Netle, kaynakların içeriği ve sürümü ile Ollama embedding modelinin kimliği aynı kaldığı sürece kaydedilen vektörleri kullanır. Her yeni isteğin sorgu vektörü ayrıca hesaplanır.
+
 [Örnek veriler ve terminal demoları](ornek-veri/README.md)

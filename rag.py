@@ -1,13 +1,15 @@
 """Index the fictional Luma Ev policies and benchmark source retrieval."""
 
 import argparse
+import hashlib
 import json
 import math
 import re
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from urllib.request import urlopen
 from uuid import uuid4
 
 from netle import CREATE_CALLS, call_ollama
@@ -67,6 +69,57 @@ def embed(db, run_id, model, inputs, operation):
     return normalized
 
 
+def embedding_model_digest(model):
+    name = model if ":" in model.rsplit("/", 1)[-1] else f"{model}:latest"
+    with urlopen("http://127.0.0.1:11434/api/tags", timeout=10) as response:
+        models = json.load(response)["models"]
+    for entry in models:
+        if name in (entry.get("name"), entry.get("model")) and entry.get("digest"):
+            return entry["digest"]
+    raise ValueError(f"Ollama'da embedding modeli bulunamadı: {model}")
+
+
+def embed_documents(db, run_id, model, chunks):
+    inputs = [f"{chunk.title}\n{chunk.text}" for chunk in chunks]
+    manifest = json.dumps(
+        {"chunks": [asdict(chunk) for chunk in chunks], "inputs": inputs},
+        ensure_ascii=False, sort_keys=True,
+    )
+    fingerprint = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+    model_digest = embedding_model_digest(model)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS document_embeddings (
+            model TEXT PRIMARY KEY,
+            model_digest TEXT NOT NULL,
+            document_fingerprint TEXT NOT NULL,
+            vectors_json TEXT NOT NULL
+        )
+    """)
+    cached = db.execute(
+        "SELECT vectors_json FROM document_embeddings "
+        "WHERE model = ? AND model_digest = ? AND document_fingerprint = ?",
+        (model, model_digest, fingerprint),
+    ).fetchone()
+    if cached is not None:
+        return json.loads(cached[0])
+
+    vectors = embed(db, run_id, model, inputs, "embed_index")
+    if embedding_model_digest(model) != model_digest:
+        raise ValueError("Embedding modeli indeksleme sırasında değişti. İsteği yeniden başlat.")
+    with db:
+        db.execute(
+            """
+            INSERT INTO document_embeddings VALUES (?, ?, ?, ?)
+            ON CONFLICT(model) DO UPDATE SET
+                model_digest = excluded.model_digest,
+                document_fingerprint = excluded.document_fingerprint,
+                vectors_json = excluded.vectors_json
+            """,
+            (model, model_digest, fingerprint, json.dumps(vectors)),
+        )
+    return vectors
+
+
 def rank(query, chunks, vectors):
     scored = [
         (chunk, math.fsum(a * b for a, b in zip(query, vector, strict=True)))
@@ -112,9 +165,7 @@ def main():
 
         with closing(sqlite3.connect(args.db)) as db:
             db.execute(CREATE_CALLS)
-            vectors = embed(db, run_id, args.embed_model, [
-                f"{chunk.title}\n{chunk.text}" for chunk in chunks
-            ], "embed_index")
+            vectors = embed_documents(db, run_id, args.embed_model, chunks)
             print(f"Çalıştırma kimliği: {run_id} | İndeks: {len(chunks)} bölüm")
             expected_total = found_total = complete_count = 0
             for label, query, expected in queries:

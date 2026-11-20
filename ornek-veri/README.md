@@ -21,7 +21,7 @@ python rag.py --evaluate --top-k 3
 python rag.py --evaluate --clarified --top-k 3
 ```
 
-Arama, her Markdown politika bölümünü bir parça olarak işler ve sonuçları kosinüs benzerliğine göre sıralar. Altı bölümlük indeks çalıştırma başına bellekte oluşturulur. Değerlendirme, beklenen kaynakların ne kadarının ilk sonuçlarda bulunduğunu ölçer. İndeksleme ve sorgu çağrıları SQLite'ta `embed_index` ve `embed_query` olarak ayrı kaydedilir.
+Arama, her Markdown politika bölümünü bir parça olarak işler ve sonuçları kosinüs benzerliğine göre sıralar. Belge vektörleri SQLite'tan yeniden kullanılabilir. Kaynaklar veya embedding modeli değiştiğinde indeks yeniden oluşturulur. Değerlendirme, beklenen kaynakların ne kadarının ilk sonuçlarda bulunduğunu ölçer. Ollama'ya giden indeksleme ve sorgu çağrıları SQLite'ta `embed_index` ve `embed_query` olarak ayrı kaydedilir.
 
 ## LangGraph ile lamba iadesi
 
