@@ -1,27 +1,65 @@
 # Netle
 
-Netle, örnek şirket belgelerine göre standart iade talepleri için müşteri yanıtı taslağı hazırlar.
+Netle, BTK Akademi Yapay Zekâ Kariyer Atölyesi için geliştirilen yerel bir prompt ajanı prototipidir. Müşteri hizmetleri çalışanının serbest metinle yazdığı iade isteğini netleştirir, ilgili şirket kurallarını bulur ve düzenlenebilir bir müşteri yanıtı taslağı hazırlar. Pilot, kurgusal Luma Ev belgeleriyle çalışır.
 
-## Yerel arayüz
+## Kurulum ve çalıştırma
 
-Ollama açıkken ve `qwen2.5:1.5b` ile `embeddinggemma:latest` modelleri yüklüyken proje klasöründe çalıştır:
+Python 3.13 ve Ollama ile Windows üzerinde test edildi. Ollama çalışırken proje klasörünü PowerShell veya VS Code'da aç. Modeller henüz yüklü değilse ilk iki komutu çalıştır:
 
 ```powershell
-python -m pip install -r requirements.txt
-python netle_web.py
+ollama pull qwen2.5:1.5b
+ollama pull embeddinggemma:latest
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe netle_web.py
 ```
 
-Tarayıcıdan [Netle’yi aç](http://127.0.0.1:8000). Örneğin “Müşteri kahve makinesini iade etmek istiyor. Kutusu açılmış, ürün kullanılmamış.” yaz. Teslimattan geçen gün sayısını ve aksesuar durumunu aynı ekranda yanıtla. Taslağı düzenleyebilir, kullanılan kaynakları ve promptu ayrı bölümde görebilirsin.
+[Netle’yi tarayıcıda aç](http://127.0.0.1:8000). VS Code'da terminal komutu yerine **Run and Debug → Netle’yi Başlat → ▶** seçeneğini veya **F5** tuşunu kullanabilirsin. Bu seçenek, Python ve Python Debugger eklentileriyle proje klasöründeki `.venv` ortamını kullanır.
 
-Arayüz standart iade, hasarlı teslimat ve hijyen mühürlü ürün akışlarını destekler. Serbest metindeki açık ifadeler kullanılır, eksik bilgiler aynı ekranda sorulur. LangGraph oturumu ve model çağrısı ölçümleri yerel SQLite dosyasına kaydedilir.
+## Demo
 
-- “Vazo kırık geldi. Sipariş numarası TEST-103.” isteğinde hasar incelemesine geçilir ve eksik fotoğraflar istenir.
-- “Hijyen mühürlü havluyu iade etmek istiyor.” isteğinde önce mühür durumu sorulur. Mühür açılmamışsa standart iade koşulları değerlendirilir.
+| İstek örneği | Beklenen davranış |
+|---|---|
+| “Müşteri kahve makinesini iade etmek istiyor. Kutusu açılmış, ürün kullanılmamış.” | Teslimattan geçen günü ve aksesuar durumunu sorar. 12 gün ve eksiksiz aksesuar yanıtlarıyla iade başvuru yolunu gösterir. |
+| “Vazo kırık geldi. Sipariş numarası TEST-103.” | Sipariş numarasını tekrar sormadan eksik fotoğraf bilgilerini ister. Hasarlı teslimat incelemesine yönlendirir. |
+| “Müşteri hijyen mühürlü havluyu iade etmek istiyor.” | Mührün açılıp açılmadığını sorar. Mühür açıksa standart iadenin neden yapılamadığını açıklar. Mühür sağlamsa standart koşulları değerlendirir. |
+| “Kullanılmamış ve aksesuarları tam olan abajur için bugün 30. gün. İade yanıtı yaz.” | Bugünün son başvuru günü olduğunu ve başvuru yolunu belirtir. |
 
-Belge vektörleri ilk aramada SQLite'a yazılır. Netle, kaynakların içeriği ve sürümü ile Ollama embedding modelinin kimliği aynı kaldığı sürece kaydedilen vektörleri kullanır. Her yeni isteğin sorgu vektörü ayrıca hesaplanır.
+**Prompt ve kaynaklar** ile **Token ve süre ölçümleri** müşteri taslağından ayrı gösterilir. **Prompt şablonları** bölümünden standart iade şablonunu önizleyip onaylayabilir, daha sonra başka bir ürün için kullanabilirsin. Şablon onayı kaynak sürümleriyle birlikte kaydedilir.
 
-Pilot kuralları, incelenmiş belge bölümlerinin sürümlerine ve içerik özetlerine bağlıdır. Bir bölüm değişirse, gerekli kaynak bulunamazsa veya koleksiyona incelenmemiş bir bölüm eklenirse Netle taslağı durdurup kullanıcıyı uyarır. Yeni kaynaklar kullanılmadan önce hem kaynaklar hem de onlara dayanan iade kuralları yeniden incelenir.
+## Ders kavramları uygulamada
 
-**Prompt şablonları** bölümünde standart iade şablonunu kaynak sürümleriyle birlikte önizleyip onaylayabilirsin. Daha önce onaylanan şablonlar aynı SQLite dosyasından yüklenir. Ürün bilgilerini doldurup **Şablonla taslak oluştur** seçeneğini kullan. Kaynağı değişen şablonlar yeniden inceleme bekler. **Token ve süre ölçümleri** müşteri taslağından ayrı gösterilir.
+| Kavram | Netle’deki karşılığı |
+|---|---|
+| RAG ve embedding | Markdown politika bölümleri Ollama ile vektörlere dönüştürülür ve kosinüs benzerliğiyle sıralanır. Belge vektörleri, içerik veya embedding modeli değişene kadar SQLite'tan yeniden kullanılır. |
+| Ajan akışı ve LangGraph | Açık ifadelerden iade türü seçilir. Eksik bilgi varsa akış durur ve kullanıcı yanıtıyla aynı oturumdan devam eder. |
+| Prompt iyileştirme ve yerel LLM | İlgili politika, bilinen bilgiler ve beklenen karar bir görev promptuna dönüştürülür. Ollama müşteri mesajı üretir. |
+| İnsan onayı ve ölçüm | Şablonlar kullanıcı onayıyla kaydedilir. Girdi ve çıktı tokenları ile çağrı süreleri SQLite'ta izlenir. |
 
-[Örnek veriler ve terminal demoları](ornek-veri/README.md)
+## Pilot değerlendirmesi
+
+Altı kurgusal senaryoda ilk istek, doğrudan RAG ve Netle aynı `qwen2.5:1.5b` modeli ve üretim ayarlarıyla çalıştırıldı. Doğrudan RAG ve Netle aynı doğrulanmış bilgilere ve kaynaklara erişti. Taslaklar doğruluk, eksiksizlik ve biçime uyum açısından elle puanlandı.
+
+| Yöntem | Kalite puanı /36 | Toplam üretim tokenı | Toplam üretim süresi |
+|---|---:|---:|---:|
+| İlk istek | 4 | 1.166 | 19,33 sn |
+| Doğrudan RAG | 6 | 3.106 | 22,60 sn |
+| Netle | 36 | 3.192 | 17,01 sn |
+
+Bu tek ölçümde ortak sorgu embedding’leri ayrıca 450 token ve 12,65 saniye kullandı. Belge vektörleri önbellekten alındı. Netle altı senaryodan beşinde modelin ham çıktısı yerine incelenmiş müşteri mesajını gösterdi. Kalite puanı gösterilen taslağa, token ve süre ölçümleri gerçek model çağrısına ait.
+
+Karşılaştırmayı yeniden çalıştırmak için:
+
+```powershell
+.\.venv\Scripts\python.exe compare_refund.py --all
+```
+
+Tek senaryo için `--scenario I04` kullanılabilir. Taslaklar `comparison_answers`, çağrı ölçümleri `model_calls` tablosuna yazılır. `netle.sqlite3` yerel kullanımda oluşur ve Git'e eklenmez.
+
+## Pilotun sınırları
+
+- Serbest metin yönlendirmesi açık Türkçe ifadelere dayanır. Bazı dolaylı anlatımlarda bilgi metinde yer alsa bile Netle tekrar sorabilir.
+- İade akışları incelenmiş örnek şirket kurallarına bağlıdır. Gerekli kaynak eksikse, içerik aynı sürümde değişirse veya incelenmemiş bir bölüm eklenirse kullanıcı uyarılır ve taslak durdurulur.
+- Sistem müşteri mesajı taslağı hazırlar. İade kaydı açma ve müşteriye mesaj gönderme işlemleri demo kapsamı dışındadır.
+
+[Örnek belgeler, senaryolar ve terminal demoları](ornek-veri/README.md)
