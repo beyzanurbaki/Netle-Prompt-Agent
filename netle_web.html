@@ -30,7 +30,7 @@
 </head>
 <body>
 <main>
-  <header><h1>Netle</h1><p>Standart iade talepleri için müşteri yanıtı hazırla.</p></header>
+  <header><h1>Netle</h1><p>İade talepleri için şirket kurallarına dayalı müşteri yanıtı hazırla.</p></header>
   <form id="request-form">
     <label for="request">İade isteğin</label>
     <textarea id="request" rows="4" required maxlength="2000" placeholder="Müşteri kahve makinesini iade etmek istiyor. Kutusunu açmış. Ne yazayım?"></textarea>
@@ -110,7 +110,9 @@
         }));
         document.querySelector('#draft').focus();
       }
-      status.textContent = data.questions ? 'Devam etmek için aşağıdaki soruları yanıtla.' : 'Taslak hazır.';
+      status.textContent = data.questions
+        ? data.flow + ' · Devam etmek için aşağıdaki soruları yanıtla.'
+        : data.flow + ' · Taslak hazır.';
     } catch (error) {
       status.className = 'error';
       status.textContent = error.message;

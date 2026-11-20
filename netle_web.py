@@ -1,4 +1,4 @@
-"""Local browser interface for the standard refund graph."""
+"""Local browser interface for the refund graph."""
 
 import argparse
 import json
@@ -17,12 +17,11 @@ from refund_graph import make_graph
 
 
 PAGE = Path(__file__).with_name("netle_web.html")
+FLOW_LABELS = {"standard": "Standart iade", "damage": "Hasarlı teslimat",
+               "possible_damage": "Teslimat durumu", "hygiene": "Hijyen mühürlü ürün"}
 
 
-def extract_facts(request):
-    words = request.translate(str.maketrans({"I": "ı", "İ": "i"})).lower()
-    if re.search(r"hasar|kırık|kırılmış|çatlak|hijyen|mühür|arızalı|kusurlu", words):
-        raise ValueError("Bu ekran standart iadeler için. Hasar, arıza ve mühürlü ürünleri ayrı inceleyin.")
+def extract_facts(words):
     facts = {}
     days = re.findall(r"\b(\d{1,4})\s*(?:takvim\s+)?gün\s+(?:önce teslim|geçti\b|oldu\b)", words)
     if len(set(days)) == 1:
@@ -44,19 +43,63 @@ def extract_facts(request):
     return facts
 
 
+def intake(request):
+    words = request.translate(str.maketrans({"I": "ı", "İ": "i"})).lower()
+    facts = extract_facts(words)
+    damage = r"(?:hasarlı|kırık|kırılmış|çatlak|ezilmiş|arızalı|kusurlu)"
+    if re.search(rf"\b{damage}\s+(?:(?:olarak|bir şekilde)\s+)?(?:geldi|ulaştı|teslim edildi)\b"
+                 rf"|\bteslimat(?:ta| sırasında)\s+(?:{damage}|hasar gördü|kırıldı)\b"
+                 r"|\bhasarlı teslimat\b(?!\s+(?:değil|mı)\b)", words):
+        flow = "damage"
+    elif re.search(rf"\b{damage}\b(?!\s+(?:değil|mı|mi)\b)", words):
+        flow = "possible_damage"
+    elif (re.search(r"\bhijyen\s+müh[üu]r", words)
+          and not re.search(r"\bhijyen mühürlü değil\b", words)):
+        flow = "hygiene"
+    else:
+        flow = "standard"
+
+    if flow in ("damage", "possible_damage"):
+        if re.search(r"\bsipariş\s+(?:numarası|no)\s*[:#]?\s*[a-z]*[- ]?\d[\w-]*"
+                     r"|\b[a-z]*-?\d[\w-]*\s+numaralı sipariş\b", words):
+            facts["siparis_no_var"] = True
+        elif re.search(r"\bsipariş\s+(?:numarası|no)\s+(?:yok|bilinmiyor)\b", words):
+            facts["siparis_no_var"] = False
+        photo_status = r"(var|mevcut|elimizde|paylaşıldı|yok|eksik)"
+        for field, subject in (
+            ("urun_fotografi_var", r"(?:hasarlı\s+)?ürün(?:ün|ü gösteren)?"),
+            ("ambalaj_fotografi_var", r"(?:dış\s+)?ambalaj(?:ın|ı gösteren)?"),
+        ):
+            match = re.search(rf"\b{subject}\s+fotoğrafı\s+{photo_status}\b", words)
+            if match:
+                facts[field] = match[1] not in ("yok", "eksik")
+        if re.search(r"\bfotoğraf(?:lar)?\s+yok\b", words):
+            for field in ("urun_fotografi_var", "ambalaj_fotografi_var"):
+                facts.setdefault(field, False)
+    elif flow == "hygiene":
+        opened = re.search(r"\bmüh(?:ür|rü)\s+(?:açık|açıldı|açılmış)\b"
+                           r"(?!\s+(?:mı|değil|olabilir)\b|\?)", words)
+        sealed = re.search(r"\bmüh(?:ür|rü)\s+(?:kapalı|sağlam|açılmadı|açılmamış)\b"
+                           r"(?!\s+(?:mı|değil|olabilir)\b|\?)", words)
+        if bool(opened) != bool(sealed):
+            facts["hijyen_muhru_acik"] = bool(opened)
+    return flow, facts
+
+
 def reply(db_path, payload):
     action = payload.get("action")
     if action == "start":
         request = payload.get("request", "").strip()
         if not request or len(request) > 2000:
             raise ValueError("İade isteğini 1–2000 karakter arasında yaz.")
-        facts = extract_facts(request)
+        flow, facts = intake(request)
         session_id = uuid4().hex
         command = {
             "session_id": session_id,
-            "scenario": {"ilk_istek": f"Standart iade koşulları ve başvuru adımı. {request}",
+            "scenario": {"ilk_istek": request,
                          "ilk_bilgiler": facts},
             "facts": facts,
+            "flow": flow,
             "chat_model": "qwen2.5:1.5b",
             "embed_model": "embeddinggemma:latest",
             "preserve_reviewed_message": True,
@@ -77,7 +120,7 @@ def reply(db_path, payload):
             state = graph.get_state(config)
             if state.next == ("generate",):
                 command = None
-            elif state.next == ("clarify",):
+            elif state.next in (("clarify",), ("clarify_seal",), ("confirm_damage",)):
                 questions = state.tasks[0].interrupts[0].value
                 answers = payload.get("answers", {})
                 for field in questions:
@@ -97,7 +140,7 @@ def reply(db_path, payload):
 
 
 def present(result, session_id):
-    response = {"session_id": session_id}
+    response = {"session_id": session_id, "flow": FLOW_LABELS[result.get("flow", "standard")]}
     if result.get("__interrupt__"):
         return {**response, "questions": result["__interrupt__"][0].value}
     return {**response, "draft": result["draft"], "prompt": result["prompt"],

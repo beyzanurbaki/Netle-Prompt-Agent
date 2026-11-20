@@ -43,7 +43,15 @@ QUESTIONS = {
     "teslimattan_sonra_gun": "Teslimattan bu yana kaç takvim günü geçti?",
     "kullanildi": "Ürün kullanıldı mı?",
     "aksesuarlar_tam": "Tüm aksesuarlar eksiksiz mi?",
+    "hijyen_muhru_acik": "Ürünün hijyen mührü açıldı mı?",
+    "teslimatta_hasarli": "Ürün müşteriye hasarlı olarak mı ulaştı?",
+    "siparis_no_var": "Sipariş numarası elinizde mi?",
+    "urun_fotografi_var": "Hasarlı ürünü gösteren fotoğraf elinizde mi?",
+    "ambalaj_fotografi_var": "Dış ambalajı gösteren fotoğraf elinizde mi?",
 }
+STANDARD_FIELDS = ("teslimattan_sonra_gun", "kullanildi", "aksesuarlar_tam")
+DAMAGE_FIELDS = ("siparis_no_var", "urun_fotografi_var", "ambalaj_fotografi_var")
+STANDARD_SOURCES = ("IADE-POL#P1", "DESTEK-REH#R1")
 
 
 class RefundState(TypedDict, total=False):
@@ -58,10 +66,19 @@ class RefundState(TypedDict, total=False):
     draft: str
     reviewed_message: str
     preserve_reviewed_message: bool
+    flow: str
 
 
 def missing_fields(state):
-    return [field for field in QUESTIONS if state["facts"].get(field) is None]
+    facts = state["facts"]
+    flow = state.get("flow", "standard")
+    if flow == "damage":
+        fields = DAMAGE_FIELDS
+    elif flow == "hygiene" and facts.get("hijyen_muhru_acik") is not False:
+        fields = ("hijyen_muhru_acik",)
+    else:
+        fields = STANDARD_FIELDS
+    return [field for field in fields if facts.get(field) is None]
 
 
 def clarify(state):
@@ -70,8 +87,36 @@ def clarify(state):
     return {"facts": {**state["facts"], **{field: answers[field] for field in fields}}}
 
 
+def confirm_damage(state):
+    if not interrupt({"teslimatta_hasarli": QUESTIONS["teslimatta_hasarli"]})["teslimatta_hasarli"]:
+        raise ValueError("Teslimat sonrasında oluşan hasar için pilot belgelerde bir iade kuralı bulunmuyor.")
+    return {"flow": "damage"}
+
+
+def special_prompt(state):
+    facts = state["facts"]
+    if state.get("flow") == "damage":
+        items = ("sipariş numaranızı", "hasarlı ürünü gösteren fotoğrafı",
+                 "dış ambalajı gösteren fotoğrafı")
+        missing = [item for field, item in zip(DAMAGE_FIELDS, items) if not facts[field]]
+        request = f" İnceleyebilmemiz için {', '.join(missing)} paylaşabilir misiniz?" if missing else (
+            " Paylaştığınız sipariş bilgisi ve fotoğraflarla talebinizi inceleyebiliriz."
+        )
+        reason = "Hasarlı teslimat, sipariş numarası ve fotoğraflarla incelemeye yönlendirilir."
+        example = f"Merhaba, ürününüzün hasarlı ulaşmasına üzüldük.{request}"
+        guidance = "Yalnızca eksik kanıtı iste. İade veya değişim onayı ya da kesin süre verme."
+    else:
+        reason = "Hijyen mühürlü ürünün mührü açıldığı için standart iade yapılamaz."
+        example = "Merhaba, ürününüzün hijyen mührü açıldığı için standart iade talebi oluşturulamıyor."
+        guidance = "Standart iade uygunluğunu müşteriye nazikçe açıkla."
+    return {"prompt": f"{reason} {guidance} Yalnızca kısa müşteri mesajını yaz. Örnek: {example}",
+            "reason": reason, "reviewed_message": example}
+
+
 def build_prompt(state):
     facts = state["facts"]
+    if state.get("flow") == "damage" or facts.get("hijyen_muhru_acik") is True:
+        return special_prompt(state)
     # This interpretation is specific to the reviewed version of the demo policy.
     eligibility = {
         "30 günlük sürenin aşılması": facts["teslimattan_sonra_gun"] > 30,
@@ -116,10 +161,17 @@ def make_graph(db, saver):
         query, = embed(db, session_id, model, [
             scenario_query(state["scenario"], clarified=False)
         ], "embed_query")
-        hits = {chunk.source: chunk for chunk, _ in rank(query, chunks, vectors)[:3]}
-        required = ("IADE-POL#P1", "DESTEK-REH#R1")
+        hits = {chunk.source: chunk for chunk, _ in rank(query, chunks, vectors)}
+        flow = state.get("flow", "standard")
+        required = STANDARD_SOURCES
+        if flow == "damage":
+            required = ("IADE-POL#P3", "DESTEK-REH#R2")
+        elif flow == "hygiene":
+            required = ("IADE-POL#P2",)
+            if state["facts"].get("hijyen_muhru_acik") is False:
+                required += STANDARD_SOURCES
         if any(source not in hits or hits[source].version != "1.0" for source in required):
-            raise ValueError("Standart iade için incelenmiş v1.0 politika ve rehber kaynakları bulunamadı.")
+            raise ValueError("Bu iade akışı için incelenmiş v1.0 kaynakları bulunamadı.")
         return {"sources": [asdict(hits[source]) for source in required]}
 
     def generate(state):
@@ -139,11 +191,23 @@ def make_graph(db, saver):
         return {"draft": customer_message(draft)}
 
     graph = StateGraph(RefundState)
+    graph.add_node("confirm_damage", confirm_damage)
+    graph.add_node("clarify_seal", clarify)
     graph.add_node("retrieve", retrieve)
     graph.add_node("clarify", clarify)
     graph.add_node("build_prompt", build_prompt)
     graph.add_node("generate", generate)
-    graph.add_edge(START, "retrieve")
+    def first_step(state):
+        if state.get("flow") == "possible_damage":
+            return "confirm_damage"
+        if state.get("flow") == "hygiene" and state["facts"].get("hijyen_muhru_acik") is None:
+            return "clarify_seal"
+        return "retrieve"
+
+    graph.add_conditional_edges(START, first_step,
+                                ["confirm_damage", "clarify_seal", "retrieve"])
+    graph.add_edge("confirm_damage", "retrieve")
+    graph.add_edge("clarify_seal", "retrieve")
     graph.add_conditional_edges("retrieve", lambda state: bool(missing_fields(state)),
                                 {True: "clarify", False: "build_prompt"})
     graph.add_edge("clarify", "build_prompt")

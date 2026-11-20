@@ -13,7 +13,10 @@ python netle_web.py
 
 Tarayıcıdan [Netle’yi aç](http://127.0.0.1:8000). Örneğin “Müşteri kahve makinesini iade etmek istiyor. Kutusu açılmış, ürün kullanılmamış.” yaz. Teslimattan geçen gün sayısını ve aksesuar durumunu aynı ekranda yanıtla. Taslağı düzenleyebilir, kullanılan kaynakları ve promptu ayrı bölümde görebilirsin.
 
-Arayüz standart iade pilotu içindir. Serbest metindeki açık gün, kullanım ve aksesuar ifadelerini tanır. Bilgi eksikse veya tanınmıyorsa soru gösterir. LangGraph oturumu ve model çağrısı ölçümleri yerel SQLite dosyasına kaydedilir.
+Arayüz standart iade, hasarlı teslimat ve hijyen mühürlü ürün akışlarını destekler. Serbest metindeki açık ifadeler kullanılır, eksik bilgiler aynı ekranda sorulur. LangGraph oturumu ve model çağrısı ölçümleri yerel SQLite dosyasına kaydedilir.
+
+- “Vazo kırık geldi. Sipariş numarası TEST-103.” isteğinde hasar incelemesine geçilir ve eksik fotoğraflar istenir.
+- “Hijyen mühürlü havluyu iade etmek istiyor.” isteğinde önce mühür durumu sorulur. Mühür açılmamışsa standart iade koşulları değerlendirilir.
 
 Belge vektörleri ilk aramada SQLite'a yazılır. Netle, kaynakların içeriği ve sürümü ile Ollama embedding modelinin kimliği aynı kaldığı sürece kaydedilen vektörleri kullanır. Her yeni isteğin sorgu vektörü ayrıca hesaplanır.
 
