@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Netle · İade asistanı</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.55 system-ui, sans-serif; color: #172d27; background: #f3f5ef; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 780px; margin: auto; padding: clamp(24px, 6vw, 64px) 20px; }
+    header { margin-bottom: 26px; }
+    h1 { font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.05; letter-spacing: -.045em; margin: 0; }
+    header p { margin: 10px 0 0; color: #425d53; }
+    section, form { background: #fff; border: 1px solid #d8e1d6; border-radius: 18px; padding: clamp(16px, 4vw, 28px); margin: 0 0 18px; }
+    label { display: block; font-weight: 650; margin-bottom: 8px; }
+    textarea, input, select { width: 100%; padding: 10px 12px; border: 1px solid #91a59a; border-radius: 9px; color: inherit; background: #fbfcfa; font: inherit; }
+    textarea { resize: vertical; }
+    button { border: 0; border-radius: 9px; padding: 10px 16px; background: #204f3e; color: #fff; font: inherit; font-weight: 650; cursor: pointer; margin-top: 12px; }
+    button:disabled { opacity: .6; cursor: wait; }
+    :focus-visible { outline: 3px solid #4e8c69; outline-offset: 3px; }
+    .field { margin-bottom: 12px; }
+    h2 { margin: 0 0 12px; font-size: 1.25rem; }
+    #status { min-height: 1.6em; color: #425d53; }
+    #status.error { color: #980f21; }
+    details { margin-top: 16px; }
+    summary { cursor: pointer; font-weight: 650; }
+    #prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>Netle</h1><p>Standart iade talepleri için müşteri yanıtı hazırla.</p></header>
+  <form id="request-form">
+    <label for="request">İade isteğin</label>
+    <textarea id="request" rows="4" required maxlength="2000" placeholder="Müşteri kahve makinesini iade etmek istiyor. Kutusunu açmış. Ne yazayım?"></textarea>
+    <button type="submit">İsteği incele</button>
+  </form>
+  <p id="status" role="status"></p>
+  <form id="answers-form" hidden>
+    <h2>Eksik bilgiler</h2>
+    <div id="questions"></div>
+    <button type="submit">Yanıtı hazırla</button>
+  </form>
+  <section id="result" hidden>
+    <label for="draft">Müşteri yanıtı taslağı</label>
+    <textarea id="draft" rows="5"></textarea>
+    <details>
+      <summary>Prompt ve kaynaklar</summary>
+      <p id="prompt"></p>
+      <ul id="sources"></ul>
+    </details>
+  </section>
+</main>
+<script>
+  const requestForm = document.querySelector('#request-form');
+  const answersForm = document.querySelector('#answers-form');
+  const questions = document.querySelector('#questions');
+  const result = document.querySelector('#result');
+  const status = document.querySelector('#status');
+  const buttons = document.querySelectorAll('button');
+  let sessionId;
+
+  async function submit(payload) {
+    for (const button of buttons) button.disabled = true;
+    status.className = '';
+    status.textContent = payload.action === 'start' ? 'Belgeler aranıyor…' : 'Taslak hazırlanıyor…';
+    try {
+      const response = await fetch('/api/refund', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      sessionId = data.session_id;
+      answersForm.hidden = !data.questions;
+      result.hidden = !data.draft;
+      if (data.questions) {
+        questions.replaceChildren();
+        for (const [key, text] of Object.entries(data.questions)) {
+          const field = document.createElement('div');
+          field.className = 'field';
+          const label = document.createElement('label');
+          label.htmlFor = key;
+          label.textContent = text;
+          const numeric = key === 'teslimattan_sonra_gun';
+          const input = document.createElement(numeric ? 'input' : 'select');
+          input.id = input.name = key;
+          input.required = true;
+          if (numeric) {
+            input.type = 'number';
+            input.min = 0;
+            input.max = 9999;
+          } else {
+            input.add(new Option('Seç', ''));
+            input.add(new Option('Evet', 'true'));
+            input.add(new Option('Hayır', 'false'));
+          }
+          field.append(label, input);
+          questions.append(field);
+        }
+        questions.querySelector('input, select').focus();
+      } else {
+        document.querySelector('#draft').value = data.draft;
+        document.querySelector('#prompt').textContent = data.prompt;
+        const sources = document.querySelector('#sources');
+        sources.replaceChildren(...data.sources.map(source => {
+          const item = document.createElement('li');
+          item.textContent = source;
+          return item;
+        }));
+        document.querySelector('#draft').focus();
+      }
+      status.textContent = data.questions ? 'Devam etmek için aşağıdaki soruları yanıtla.' : 'Taslak hazır.';
+    } catch (error) {
+      status.className = 'error';
+      status.textContent = error.message;
+    } finally {
+      for (const button of buttons) button.disabled = false;
+    }
+  }
+
+  requestForm.addEventListener('submit', event => {
+    event.preventDefault();
+    answersForm.hidden = result.hidden = true;
+    submit({action: 'start', request: document.querySelector('#request').value});
+  });
+  answersForm.addEventListener('submit', event => {
+    event.preventDefault();
+    const answers = Object.fromEntries(Array.from(new FormData(answersForm), ([key, value]) =>
+      [key, key === 'teslimattan_sonra_gun' ? Number(value) : value === 'true']
+    ));
+    submit({action: 'resume', session_id: sessionId, answers});
+  });
+</script>
+</body>
+</html>

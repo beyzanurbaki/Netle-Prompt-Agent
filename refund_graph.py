@@ -41,7 +41,7 @@ def customer_message(draft):
 
 QUESTIONS = {
     "teslimattan_sonra_gun": "Teslimattan bu yana kaç takvim günü geçti?",
-    "kullanildi": "Lamba kullanıldı mı?",
+    "kullanildi": "Ürün kullanıldı mı?",
     "aksesuarlar_tam": "Tüm aksesuarlar eksiksiz mi?",
 }
 
@@ -56,6 +56,8 @@ class RefundState(TypedDict, total=False):
     prompt: str
     reason: str
     draft: str
+    reviewed_message: str
+    preserve_reviewed_message: bool
 
 
 def missing_fields(state):
@@ -73,7 +75,7 @@ def build_prompt(state):
     # This interpretation is specific to the reviewed version of the demo policy.
     eligibility = {
         "30 günlük sürenin aşılması": facts["teslimattan_sonra_gun"] > 30,
-        "lambanın kullanılmış olması": facts["kullanildi"],
+        "ürünün kullanılmış olması": facts["kullanildi"],
         "aksesuarların eksik olması": not facts["aksesuarlar_tam"],
     }
     unmet = [reason for reason, applies in eligibility.items() if applies]
@@ -87,23 +89,23 @@ def build_prompt(state):
     else:
         reason = (
             f"Teslimattan sonra {facts['teslimattan_sonra_gun']} gün geçmiş. "
-            "Lamba kullanılmamış ve aksesuarları tam. Açılmış kutu tek başına engel değil."
+            "Ürün kullanılmamış ve aksesuarları tam. Açılmış kutu tek başına engel değil."
         )
         guidance = (
             "'İade talebinizi oluşturabilirsiniz' diyerek doğrudan müşteriye hitap et. "
             "Hesabım → Siparişlerim → İade Talebi yolunu göster."
         )
         example = (
-            "Merhaba, lambanız kullanılmadığı ve aksesuarları eksiksiz olduğu için "
-            "kutusu açılmış olsa da iade talebi oluşturabilirsiniz. "
+            "Merhaba, ürününüz için iade talebi oluşturabilirsiniz. "
+            "Kutunun açılması tek başına iadeye engel değildir. "
             "Hesabım → Siparişlerim → İade Talebi adımlarını izleyebilirsiniz."
         )
     prompt = (
-        "Masa lambası için müşteriye kısa ve nazik bir Türkçe mesaj taslağı yaz. "
+        f"{facts.get('urun') or 'İade edilen ürün'} için müşteriye kısa ve nazik bir Türkçe mesaj taslağı yaz. "
         f"{reason} {guidance} "
         f"Müşteriye yalnızca mesajı göster. Yanıt örneğinin üslubunu ve kısalığını koru: {example}"
     )
-    return {"prompt": prompt, "reason": reason}
+    return {"prompt": prompt, "reason": reason, "reviewed_message": example}
 
 
 def make_graph(db, saver):
@@ -119,10 +121,18 @@ def make_graph(db, saver):
         hits = {chunk.source: chunk for chunk, _ in rank(query, chunks, vectors)[:3]}
         required = ("IADE-POL#P1", "DESTEK-REH#R1")
         if any(source not in hits or hits[source].version != "1.0" for source in required):
-            raise ValueError("I01 için incelenmiş v1.0 politika ve rehber kaynakları bulunamadı.")
+            raise ValueError("Standart iade için incelenmiş v1.0 politika ve rehber kaynakları bulunamadı.")
         return {"sources": [asdict(hits[source]) for source in required]}
 
     def generate(state):
+        if state.get("preserve_reviewed_message"):
+            reviewed = state["reviewed_message"]
+            draft = chat(
+                db, state["session_id"], state["chat_model"], "generate_draft",
+                CUSTOMER_MESSAGE_RULE + " Son satırdaki müşteri mesajını aynen döndür.",
+                f"{state['prompt']}\n\nMüşteri mesajı:\n{reviewed}",
+            )
+            return {"draft": draft if draft == reviewed else reviewed}
         draft = chat(
             db, state["session_id"], state["chat_model"], "generate_draft",
             CUSTOMER_MESSAGE_RULE + " Örnekteki kararı ve sonraki adımı koru.",

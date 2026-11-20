@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    
+    {
+      "name": "Netle’yi Başlat",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "program": "${workspaceFolder}/netle_web.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}
