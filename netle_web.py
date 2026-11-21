@@ -15,12 +15,45 @@ from langgraph.types import Command
 from netle import CREATE_CALLS
 from refund_demo import chat
 from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, make_graph
-from refund_template import CREATE_TEMPLATES, NAME, TEMPLATE, approve_template, current_sources, proposal, render
+from refund_template import (
+    CREATE_TEMPLATES, DAMAGE, HYGIENE, NAME, TEMPLATES, approve_template,
+    approved_template, current_sources, proposal,
+)
 
 
 PAGE = Path(__file__).with_name("netle_web.html")
 FLOW_LABELS = {"standard": "Standart iade", "damage": "Hasarlı teslimat",
                "possible_damage": "Teslimat durumu", "hygiene": "Hijyen mühürlü ürün"}
+
+REFUND_REQUEST = re.compile(r"\biade\w*\b|\bgeri\s+(?:ver\w*|gönder\w*|yolla\w*)\b")
+VAGUE_REFUND_REQUEST = re.compile(
+    r"iade(?:yle|\s+ile)?(?:\s+(?:hakkında|ilgili|konusunda|var))?"
+    r"(?:\s+(?:yardım|destek)(?:\s+istiyorum)?)?[.?!\s]*"
+)
+OUTSIDE_REQUEST = re.compile(
+    r"\bkargo(?:m|su)?\s+(?:nerede|takip\w*)\b"
+    r"|\bsipariş\w*\s+(?:iptal\w*|takip\w*|nerede)\b"
+    r"|\b(?:fatura|garanti|kurulum|servis)\w*\b"
+    r"|\b(?:adres|şifre|parola)\w*\s+değiştir\w*\b"
+    r"|\b(?:içmek|yemek|satın almak|sipariş vermek)\s+istiyor\w*\b"
+    r"|\b(?:kahve|çay|yemek)\s+tarif\w*\b"
+    r"|\bhava durumu\b"
+    r"|\b(?:ben|sen)\s+kim(?:im|sin)\b"
+    r"|\b(?:beni tanıyor musun|benim adım ne|adım ne|burada ne yapabilirsin)\b"
+)
+OUTSIDE_REFUND_REQUEST = re.compile(
+    r"\biade\s+(?:(?:etmek\s+)?istemiyor\w*|durum(?:u|unu|um|umu)|takip\w*)\b"
+)
+
+
+class IntakeError(ValueError):
+    def __init__(self, code):
+        self.code = code
+        messages = {
+            "out_of_scope": "Bu talep Netle’nin kapsamı dışında. Netle, ürün iadesi ve hasarlı teslimat için müşteri yanıtı hazırlar.",
+            "unclear_request": "Talebi anlayamadım. Hangi ürünle ilgili ne yapmak istediğini daha açık yaz.",
+        }
+        super().__init__(messages[code])
 
 
 def extract_facts(words):
@@ -48,9 +81,11 @@ def extract_facts(words):
 
 def intake(request):
     words = request.translate(str.maketrans({"I": "ı", "İ": "i"})).lower()
+    if OUTSIDE_REFUND_REQUEST.search(words):
+        raise IntakeError("out_of_scope")
     facts = extract_facts(words)
     damage = r"(?:hasarlı|kırık|kırılmış|çatlak|ezilmiş|arızalı|kusurlu)"
-    if re.search(rf"\b{damage}\s+(?:(?:olarak|bir şekilde)\s+)?(?:geldi|ulaştı|teslim edildi)\b"
+    if re.search(rf"\b{damage}\s+(?:(?:olarak|bir şekilde)\s+)?(?:geldi|gelmiş|ulaştı|ulaşmış|teslim edildi|teslim edilmiş)\b"
                  rf"|\bteslimat(?:ta| sırasında)\s+(?:{damage}|hasar gördü|kırıldı)\b"
                  r"|\bhasarlı teslimat\b(?!\s+(?:değil|mı)\b)", words):
         flow = "damage"
@@ -60,7 +95,12 @@ def intake(request):
           and not re.search(r"\bhijyen mühürlü değil\b", words)):
         flow = "hygiene"
     else:
-        flow = "standard"
+        if REFUND_REQUEST.search(words) and not VAGUE_REFUND_REQUEST.fullmatch(words):
+            flow = "standard"
+        elif OUTSIDE_REQUEST.search(words):
+            raise IntakeError("out_of_scope")
+        else:
+            raise IntakeError("unclear_request")
 
     if flow in ("damage", "possible_damage"):
         if re.search(r"\bsipariş\s+(?:numarası|no)\s*[:#]?\s*[a-z]*[- ]?\d[\w-]*"
@@ -166,56 +206,80 @@ def present(db, result, session_id):
             "usage": usage(db, session_id)}
 
 
+STANDARD_TEMPLATE_FIELDS = {
+    "days": "Teslimattan geçen gün",
+    "kullanildi": "Ürün kullanıldı mı?",
+    "aksesuarlar_tam": "Aksesuarlar eksiksiz mi?",
+}
+TEMPLATE_FIELDS = {
+    NAME: {**STANDARD_TEMPLATE_FIELDS, "kutu_acik": "Kutu açıldı mı?"},
+    DAMAGE: {
+        "siparis_no_var": "Sipariş numarası elinizde mi?",
+        "urun_fotografi_var": "Hasarlı ürünün fotoğrafı elinizde mi?",
+        "ambalaj_fotografi_var": "Dış ambalajın fotoğrafı elinizde mi?",
+    },
+    HYGIENE: {"hijyen_muhru_acik": "Hijyen mührü açıldı mı?", **STANDARD_TEMPLATE_FIELDS},
+}
+TEMPLATE_LABELS = {NAME: "Standart iade", DAMAGE: "Hasarlı teslimat", HYGIENE: "Hijyen mühürlü ürün"}
+
+
 def template_action(db_path, payload):
     action = payload.get("action")
     if action == "preview":
-        approval_id, sources_json = proposal()
-        return {"approval_id": approval_id, "name": NAME, "prompt": TEMPLATE,
+        name = payload.get("name", NAME)
+        approval_id, sources_json = proposal(name)
+        return {"approval_id": approval_id, "name": name, "prompt": TEMPLATES[name][0],
                 "sources": [source_label(item) for item in json.loads(sources_json)]}
     with closing(sqlite3.connect(db_path)) as db:
         db.execute(CREATE_TEMPLATES)
         if action == "list":
-            try:
-                sources = current_sources()
-            except (ValueError, OSError):
-                sources = None
+            sources = {}
+            for name in TEMPLATES:
+                try:
+                    sources[name] = current_sources(name)
+                except (ValueError, OSError):
+                    sources[name] = None
             return {"templates": [
                 {"approval_id": key, "name": name, "approved_at": approved_at,
-                 "available": json.loads(stored) == sources}
+                 "label": TEMPLATE_LABELS.get(name, name),
+                 "fields": TEMPLATE_FIELDS.get(name, {}),
+                 "available": json.loads(stored) == sources.get(name)}
                 for key, name, approved_at, stored in db.execute(
                     "SELECT approval_id, name, approved_at, sources_json FROM prompt_templates "
                     "ORDER BY approved_at DESC, approval_id"
                 )
             ]}
         if action == "approve":
-            approve_template(db, payload["approval_id"])
+            approve_template(db, payload["approval_id"], payload.get("name", NAME))
             return {"approved": True}
         if action != "use":
             raise ValueError("Bilinmeyen şablon işlemi.")
 
+        name, template, sources = approved_template(db, payload["approval_id"])
+        fields = TEMPLATE_FIELDS[name]
         product = payload.get("product", "").strip()
-        days = payload.get("days")
+        days = payload.get("days") if "days" in fields else None
         if not product or len(product) > 120 or len(product.splitlines()) != 1:
             raise ValueError("Ürün adı 1–120 karakter ve tek satır olmalı.")
         if days is not None and (type(days) is not int or not 0 <= days <= 9999):
             raise ValueError("Gün sayısı 0–9999 arasında bir tam sayı olmalı.")
         facts = {"urun": product, "teslimattan_sonra_gun": days}
         labels = {True: "Evet", False: "Hayır", None: "Bilinmiyor"}
-        fields = ("kullanildi", "aksesuarlar_tam", "kutu_acik")
+        answers = {"urun": product, "teslimattan_sonra_gun": days if days is not None else "Bilinmiyor"}
         for field in fields:
+            if field == "days":
+                continue
             value = payload.get(field)
             if value is not None and type(value) is not bool:
                 raise ValueError("Ürün bilgileri için Evet, Hayır veya Bilinmiyor seç.")
             facts[field] = value
-        approval_id = payload["approval_id"]
-        prompt = render(db, approval_id, {
-            **facts, **{field: labels[facts[field]] for field in fields},
-            "teslimattan_sonra_gun": days if days is not None else "Bilinmiyor",
-        })
-        stored_sources, = db.execute(
-            "SELECT sources_json FROM prompt_templates WHERE approval_id = ?", (approval_id,)
-        ).fetchone()
-        reviewed = build_prompt({"facts": facts})["reviewed_message"]
+            answers[field] = labels[value]
+        prompt = template.format_map(answers)
+        if name == HYGIENE and facts["hijyen_muhru_acik"] is None:
+            reviewed = "Merhaba, iade talebinizi değerlendirebilmemiz için ürünün hijyen mührünün açılıp açılmadığını paylaşabilir misiniz?"
+        else:
+            flow = {DAMAGE: "damage", HYGIENE: "hygiene"}.get(name, "standard")
+            reviewed = build_prompt({"flow": flow, "facts": facts})["reviewed_message"]
         run_id = uuid4().hex
         db.execute(CREATE_CALLS)
         draft = chat(
@@ -223,8 +287,8 @@ def template_action(db_path, payload):
             CUSTOMER_MESSAGE_RULE + " Son satırdaki müşteri mesajını aynen döndür.",
             f"{prompt}\n\nMüşteri mesajı:\n{reviewed}",
         )
-        return {"flow": "Onaylı şablon", "draft": draft if draft == reviewed else reviewed,
-                "prompt": prompt, "sources": [source_label(item) for item in json.loads(stored_sources)],
+        return {"flow": TEMPLATE_LABELS[name], "draft": draft if draft == reviewed else reviewed,
+                "prompt": prompt, "sources": [source_label(item) for item in sources],
                 "usage": usage(db, run_id), "session_id": run_id}
 
 
@@ -255,6 +319,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Geçersiz istek.")
             result = action(self.server.db_path, json.loads(self.rfile.read(length)))
             status = 200
+        except IntakeError as error:
+            status, result = 400, {"error": str(error), "code": error.code}
         except (ValueError, TypeError, AttributeError, KeyError) as error:
             status, result = 400, {"error": str(error)}
         except (OSError, sqlite3.Error):

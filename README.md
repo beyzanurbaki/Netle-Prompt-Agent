@@ -25,7 +25,7 @@ python -m venv .venv
 | “Müşteri hijyen mühürlü havluyu iade etmek istiyor.” | Mührün açılıp açılmadığını sorar. Mühür açıksa standart iadenin neden yapılamadığını açıklar. Mühür sağlamsa standart koşulları değerlendirir. |
 | “Kullanılmamış ve aksesuarları tam olan abajur için bugün 30. gün. İade yanıtı yaz.” | Bugünün son başvuru günü olduğunu ve başvuru yolunu belirtir. |
 
-**Prompt ve kaynaklar** ile **Token ve süre ölçümleri** müşteri taslağından ayrı gösterilir. **Prompt şablonları** bölümünden standart iade şablonunu önizleyip onaylayabilir, daha sonra başka bir ürün için kullanabilirsin. Şablon onayı kaynak sürümleriyle birlikte kaydedilir.
+**Prompt ve kaynaklar** ile **Token ve süre ölçümleri** müşteri taslağından ayrı gösterilir. **Prompt şablonları** bölümünden standart iade, hasarlı teslimat veya hijyen mühürlü ürün şablonunu seçip önizleyebilir ve onaylayabilirsin. Onaylı şablonlar yeni ürünlerle tekrar kullanılabilir. Her şablonun onayı kendi kaynak sürümleriyle birlikte kaydedilir.
 
 ## Ders kavramları uygulamada
 

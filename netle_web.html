@@ -29,6 +29,7 @@
     #template-prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
     .template-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
     .template-fields input, .template-fields select { margin-top: 6px; }
+    .template-fields label[hidden] { display: none; }
     .measurements { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid #d8e1d6; white-space: nowrap; }
@@ -50,7 +51,13 @@
   </form>
   <section aria-labelledby="templates-title">
     <h2 id="templates-title">Prompt şablonları</h2>
-    <button id="preview-template" type="button">Standart iadeyi önizle</button>
+    <label for="template-kind">Önizlenecek şablon</label>
+    <select id="template-kind">
+      <option value="standart-iade">Standart iade</option>
+      <option value="hasarli-teslimat">Hasarlı teslimat</option>
+      <option value="hijyen-muhurlu-urun">Hijyen mühürlü ürün</option>
+    </select>
+    <button id="preview-template" type="button">Önizle</button>
     <div id="template-preview" hidden>
       <p id="template-prompt"></p>
       <ul id="template-sources"></ul>
@@ -61,19 +68,8 @@
     <form id="template-form" hidden>
       <label for="saved-template">Onaylı şablon</label>
       <select id="saved-template" required></select>
-      <div class="template-fields">
-        <label>Ürün adı <input name="product" required maxlength="120"></label>
-        <label>Teslimattan geçen gün <input name="days" type="number" min="0" max="9999" placeholder="Bilinmiyor"></label>
-        <label>Ürün kullanıldı mı?
-          <select name="kullanildi"><option value="">Bilinmiyor</option><option value="true">Evet</option><option value="false">Hayır</option></select>
-        </label>
-        <label>Aksesuarlar eksiksiz mi?
-          <select name="aksesuarlar_tam"><option value="">Bilinmiyor</option><option value="true">Evet</option><option value="false">Hayır</option></select>
-        </label>
-        <label>Kutu açıldı mı?
-          <select name="kutu_acik"><option value="">Bilinmiyor</option><option value="true">Evet</option><option value="false">Hayır</option></select>
-        </label>
-      </div>
+      <label>Ürün adı <input name="product" required maxlength="120"></label>
+      <div class="template-fields" id="template-fields"></div>
       <button type="submit">Şablonla taslak oluştur</button>
     </form>
   </section>
@@ -154,6 +150,10 @@
     status.textContent = payload.action === 'start' ? 'Belgeler aranıyor…' : 'Taslak hazırlanıyor…';
     try {
       const data = await post('/api/refund', payload);
+      if (data.questions && !data.flow) {
+        answersForm.hidden = true;
+        throw new Error('Netle bu isteği bir iade akışına bağlayamadı. Uygulamayı yeniden başlatıp tekrar dene.');
+      }
       sessionId = data.session_id;
       answersForm.hidden = !data.questions;
       result.hidden = !data.draft;
@@ -185,9 +185,10 @@
       } else {
         showResult(data);
       }
-      status.textContent = data.questions
-        ? data.flow + ' · Devam etmek için aşağıdaki soruları yanıtla.'
-        : data.flow + ' · Taslak hazır.';
+      const message = data.questions
+        ? 'Devam etmek için aşağıdaki soruları yanıtla.'
+        : 'Taslak hazır.';
+      status.textContent = data.flow ? data.flow + ' · ' + message : message;
     } catch (error) {
       status.className = 'error';
       status.textContent = error.message;
@@ -213,16 +214,66 @@
   const savedTemplate = document.querySelector('#saved-template');
   const templateStatus = document.querySelector('#template-status');
   const approveButton = document.querySelector('#approve-template');
+  const templateKind = document.querySelector('#template-kind');
+  const previewPanel = document.querySelector('#template-preview');
+  const templateFields = document.querySelector('#template-fields');
+  let approvedTemplates = [];
+  let previewName;
+
+  function updateTemplateFields() {
+    const selected = approvedTemplates.find(template => template.approval_id === savedTemplate.value);
+    if (templateFields.dataset.selection === savedTemplate.value) return;
+    templateFields.dataset.selection = savedTemplate.value;
+    const fields = Object.entries(selected?.fields ?? {});
+    templateFields.replaceChildren(...fields.map(([key, text]) => {
+      const label = document.createElement('label');
+      const input = document.createElement(key === 'days' ? 'input' : 'select');
+      label.textContent = text;
+      input.name = key;
+      if (key === 'days') {
+        input.type = 'number';
+        input.min = 0;
+        input.max = 9999;
+        input.placeholder = 'Bilinmiyor';
+      } else {
+        input.add(new Option('Bilinmiyor', ''));
+        input.add(new Option('Evet', 'true'));
+        input.add(new Option('Hayır', 'false'));
+      }
+      label.append(input);
+      return label;
+    }));
+    const seal = templateFields.querySelector('[name="hijyen_muhru_acik"]');
+    if (seal) {
+      const updateSeal = () => {
+        for (const field of templateFields.querySelectorAll('input, select')) {
+          if (field === seal) continue;
+          field.disabled = seal.value !== 'false';
+          field.parentElement.hidden = field.disabled;
+        }
+      };
+      seal.addEventListener('change', updateSeal);
+      updateSeal();
+    }
+  }
+
+  savedTemplate.addEventListener('change', updateTemplateFields);
+  templateKind.addEventListener('change', () => {
+    previewPanel.hidden = true;
+    previewId = undefined;
+  });
 
   async function refreshTemplates() {
     const {templates} = await post('/api/templates', {action: 'list'});
     const available = templates.filter(template => template.available);
+    approvedTemplates = available;
     const selected = savedTemplate.value;
     savedTemplate.replaceChildren(...available.map(template =>
-      new Option(template.name, template.approval_id)
+      new Option(template.label, template.approval_id)
     ));
     if (available.some(template => template.approval_id === selected)) savedTemplate.value = selected;
     templateForm.hidden = !available.length;
+    updateTemplateFields();
     document.querySelector('#template-list').textContent = templates.some(template => !template.available)
       ? 'Kaynağı değişmiş şablonlar yeniden inceleme bekliyor.' : '';
     approveButton.hidden = !previewId || available.some(template => template.approval_id === previewId);
@@ -243,21 +294,28 @@
 
   document.querySelector('#preview-template').addEventListener('click', () => {
     templateTask('Şablon okunuyor…', async () => {
-      const data = await post('/api/templates', {action: 'preview'});
+      const data = await post('/api/templates', {action: 'preview', name: templateKind.value});
+      if (data.name !== templateKind.value) {
+        templateStatus.textContent = '';
+        return;
+      }
+      previewName = data.name;
       previewId = data.approval_id;
       document.querySelector('#template-prompt').textContent = data.prompt;
       showList(document.querySelector('#template-sources'), data.sources);
       await refreshTemplates();
-      document.querySelector('#template-preview').hidden = false;
+      previewPanel.hidden = false;
       templateStatus.textContent = approveButton.hidden ? 'Bu şablon zaten onaylı.' : 'Önizleme hazır.';
     });
   });
 
   approveButton.addEventListener('click', () => {
     templateTask('Şablon kaydediliyor…', async () => {
-      await post('/api/templates', {action: 'approve', approval_id: previewId});
+      const approvalId = previewId;
+      await post('/api/templates', {action: 'approve', name: previewName, approval_id: approvalId});
       await refreshTemplates();
-      savedTemplate.value = previewId;
+      savedTemplate.value = approvalId;
+      updateTemplateFields();
       templateStatus.textContent = 'Şablon kaynak sürümleriyle kaydedildi.';
     });
   });
@@ -266,12 +324,12 @@
     event.preventDefault();
     templateTask('Şablondan taslak hazırlanıyor…', async () => {
       const fields = new FormData(templateForm);
-      const answers = Object.fromEntries(['kullanildi', 'aksesuarlar_tam', 'kutu_acik'].map(key =>
-        [key, fields.get(key) === '' ? null : fields.get(key) === 'true']
+      const answers = Object.fromEntries([...fields].filter(([key]) => key !== 'product').map(([key, value]) =>
+        [key, value === '' ? null : key === 'days' ? Number(value) : value === 'true']
       ));
       const data = await post('/api/templates', {
         action: 'use', approval_id: savedTemplate.value, product: fields.get('product'),
-        days: fields.get('days') === '' ? null : Number(fields.get('days')), ...answers
+        ...answers
       });
       showResult(data);
       templateStatus.textContent = 'Şablondan müşteri taslağı hazır.';

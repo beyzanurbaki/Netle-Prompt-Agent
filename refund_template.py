@@ -1,4 +1,4 @@
-"""Preview, approve and render the standard refund prompt template."""
+"""Preview, approve and render reviewed refund prompt templates."""
 
 import argparse
 import hashlib
@@ -15,7 +15,7 @@ from source_validation import load_reviewed_sources
 
 
 NAME = "standart-iade"
-REVIEWED_VERSIONS = {"IADE-POL#P1": "1.0", "DESTEK-REH#R1": "1.0"}
+STANDARD_SOURCES = ("IADE-POL#P1", "DESTEK-REH#R1")
 TEMPLATE = """{urun} için müşteriye kısa, nazik ve doğrudan hitap eden bir Türkçe yanıt yaz.
 
 Teslimattan geçen takvim günü: {teslimattan_sonra_gun}
@@ -28,6 +28,29 @@ Standart iade süresi teslimattan itibaren 30 takvim günüdür. Teslimat günü
 Tüm koşullar doğrulanmışsa müşteriye Hesabım → Siparişlerim → İade Talebi yolunu göster. Bir koşulun karşılanmadığı kesinleşmişse nedenini açıkla. Uygunluk belirlenemiyorsa yalnızca kararı etkileyen eksik bilgileri sor. Açılmamış bir iade kaydının açıldığını söyleme.
 
 Yalnızca müşteri mesajını yaz. İç notları, ham görev bilgilerini ve kaynak kimliklerini mesajın dışında tut."""
+
+DAMAGE = "hasarli-teslimat"
+HYGIENE = "hijyen-muhurlu-urun"
+TEMPLATES = {
+    NAME: (TEMPLATE, STANDARD_SOURCES),
+    DAMAGE: ("""Hasarlı ulaşan {urun} için kısa ve nazik bir müşteri mesajı yaz.
+
+Sipariş numarası mevcut mu: {siparis_no_var}
+Hasarlı ürünün fotoğrafı mevcut mu: {urun_fotografi_var}
+Dış ambalajın fotoğrafı mevcut mu: {ambalaj_fotografi_var}
+
+Talebi hasarlı teslimat incelemesine yönlendir. Yalnızca eksik veya bilinmeyen bilgileri iste. Standart iade süresine göre ret verme. İade, değişim veya kesin sonuç süresi sözü verme. Yalnızca müşteri mesajını yaz.""",
+             ("IADE-POL#P3", "DESTEK-REH#R2")),
+    HYGIENE: ("""Hijyen mühürlü {urun} için kısa ve nazik bir müşteri mesajı yaz.
+
+Hijyen mührü açıldı mı: {hijyen_muhru_acik}
+Teslimattan geçen takvim günü: {teslimattan_sonra_gun}
+Ürün kullanıldı mı: {kullanildi}
+Aksesuarlar eksiksiz mi: {aksesuarlar_tam}
+
+Mühür durumu bilinmiyorsa önce onu sor. Mühür açıksa standart iade yapılamadığını açıkla. Mühür sağlamsa 30. gün dahil olmak üzere iade süresini, kullanım ve aksesuar koşullarını değerlendir. Uygunsa Hesabım → Siparişlerim → İade Talebi yolunu göster ve 30. günde bugün başvurulması gerektiğini belirt. Yalnızca müşteri mesajını yaz.""",
+              ("IADE-POL#P2", *STANDARD_SOURCES)),
+}
 
 CREATE_TEMPLATES = """
 CREATE TABLE IF NOT EXISTS prompt_templates (
@@ -44,10 +67,13 @@ def digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def current_sources():
-    chunks = {chunk.source: chunk for chunk in load_reviewed_sources(DATA_DIR / "belgeler", REVIEWED_VERSIONS)}
+def current_sources(name=NAME):
+    if name not in TEMPLATES:
+        raise ValueError("Şablon bulunamadı.")
+    _, required = TEMPLATES[name]
+    chunks = {chunk.source: chunk for chunk in load_reviewed_sources(DATA_DIR / "belgeler", required)}
     sources = []
-    for source_id in REVIEWED_VERSIONS:
+    for source_id in required:
         chunk = chunks[source_id]
         metadata = asdict(chunk)
         metadata["sha256"] = digest(metadata.pop("text"))
@@ -55,17 +81,16 @@ def current_sources():
     return sources
 
 
-def proposal():
-    sources = current_sources()
-    if any(source["version"] != REVIEWED_VERSIONS[source["source"]] for source in sources):
-        raise ValueError("Kaynak sürümü değişti. İade kuralları yeniden incelenmeli.")
+def proposal(name=NAME):
+    sources = current_sources(name)
+    template, _ = TEMPLATES[name]
     sources_json = json.dumps(sources, ensure_ascii=False, sort_keys=True)
-    approval_id = digest(json.dumps([NAME, TEMPLATE, sources_json], ensure_ascii=False))
+    approval_id = digest(json.dumps([name, template, sources_json], ensure_ascii=False))
     return approval_id, sources_json
 
 
-def approve_template(db, approval_id):
-    expected_id, sources_json = proposal()
+def approve_template(db, approval_id, name=NAME):
+    expected_id, sources_json = proposal(name)
     if approval_id != expected_id:
         raise ValueError("Onay kimliği güncel önizlemeyle eşleşmiyor.")
     with db:
@@ -73,19 +98,25 @@ def approve_template(db, approval_id):
         db.execute(
             "INSERT INTO prompt_templates (approval_id, name, prompt, sources_json) "
             "VALUES (?, ?, ?, ?) ON CONFLICT(approval_id) DO NOTHING",
-            (approval_id, NAME, TEMPLATE, sources_json),
+            (approval_id, name, TEMPLATES[name][0], sources_json),
         )
 
 
-def render(db, approval_id, answers):
+def approved_template(db, approval_id):
     row = db.execute(
-        "SELECT prompt, sources_json FROM prompt_templates WHERE approval_id = ?", (approval_id,)
+        "SELECT name, prompt, sources_json FROM prompt_templates WHERE approval_id = ?", (approval_id,)
     ).fetchone()
     if row is None:
         raise ValueError("Onaylı şablon bulunamadı.")
-    template, sources_json = row
-    if json.loads(sources_json) != current_sources():
+    name, template, sources_json = row
+    sources = json.loads(sources_json)
+    if sources != current_sources(name):
         raise ValueError("Kaynaklar değişti. Şablon yeniden incelenip onaylanmalı.")
+    return name, template, sources
+
+
+def render(db, approval_id, answers):
+    _, template, _ = approved_template(db, approval_id)
     return template.format_map(answers)
 
 
