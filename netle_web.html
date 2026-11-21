@@ -10,6 +10,11 @@
     body { margin: 0; }
     main { max-width: 780px; margin: auto; padding: clamp(24px, 6vw, 64px) 20px; }
     header { margin-bottom: 26px; }
+    .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .account-menu { display: flex; align-items: center; gap: clamp(6px, 2vw, 12px); }
+    .account-menu[hidden] { display: none; }
+    #employee-name { max-width: min(32vw, 16rem); overflow-wrap: anywhere; font-weight: 650; }
+    #logout { margin: 0; padding: 7px 12px; white-space: nowrap; }
     h1 { font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.05; letter-spacing: -.045em; margin: 0; }
     header p { margin: 10px 0 0; color: #425d53; }
     section, form { background: #fff; border: 1px solid #d8e1d6; border-radius: 18px; padding: clamp(16px, 4vw, 28px); margin: 0 0 18px; }
@@ -37,7 +42,32 @@
 </head>
 <body>
 <main>
-  <header><h1>Netle</h1><p>İade talepleri için şirket kurallarına dayalı müşteri yanıtı hazırla.</p></header>
+  <header>
+    <div class="header-row">
+      <h1>Netle</h1>
+      <div id="account-menu" class="account-menu" role="group" aria-label="Çalışan oturumu" hidden>
+        <span id="employee-name"></span>
+        <button id="logout" type="button">Çıkış</button>
+      </div>
+    </div>
+    <p>İade talepleri için şirket kurallarına dayalı müşteri yanıtı hazırla.</p>
+  </header>
+  <form id="account-form" hidden>
+    <h2 id="account-title">Çalışan girişi</h2>
+    <div class="field">
+      <label for="username">Kullanıcı adı</label>
+      <input id="username" autocomplete="username" minlength="3" maxlength="40" required>
+    </div>
+    <div class="field">
+      <label for="password">Parola</label>
+      <input id="password" type="password" autocomplete="current-password" maxlength="128" required>
+      <small id="password-hint" hidden>En az 8 karakter ve bir rakam kullan.</small>
+    </div>
+    <button id="account-submit" type="submit">Oturum aç</button>
+    <button id="account-mode" type="button">Kayıt ol</button>
+  </form>
+  <p id="account-status" role="status"></p>
+  <div id="employee-work" hidden>
   <form id="request-form">
     <label for="request">İade isteğin</label>
     <textarea id="request" rows="4" required maxlength="2000" placeholder="Müşteri kahve makinesini iade etmek istiyor. Kutusunu açmış. Ne yazayım?"></textarea>
@@ -89,6 +119,7 @@
       </table>
     </details>
   </section>
+  </div>
 </main>
 <script>
   const requestForm = document.querySelector('#request-form');
@@ -105,7 +136,19 @@
     const response = await fetch(path, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
     });
-    const data = await response.json();
+    if (!response.headers.get('Content-Type')?.includes('application/json')) {
+      if (path === '/api/account' && response.status === 404) {
+        throw new Error('Çalışan Netle sunucusunda giriş özelliği bulunamadı. VS Code’da Netle’yi durdurup yeniden başlat.');
+      }
+      throw new Error('Netle sunucusundan beklenen yanıt alınamadı. Uygulamayı yeniden başlatıp tekrar dene.');
+    }
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error('Netle sunucusu geçersiz yanıt gönderdi. Lütfen tekrar dene.');
+    }
+    if (response.status === 401) setAccount(null, data.error);
     if (!response.ok) throw new Error(data.error);
     return data;
   }
@@ -336,7 +379,93 @@
     });
   });
 
-  refreshTemplates().catch(error => { templateStatus.textContent = error.message; });
+  const accountForm = document.querySelector('#account-form');
+  const accountStatus = document.querySelector('#account-status');
+  const password = document.querySelector('#password');
+  let accountMode = 'login';
+
+  function setAccount(username, message = '') {
+    accountForm.hidden = Boolean(username);
+    document.querySelector('#employee-work').hidden = !username;
+    document.querySelector('#account-menu').hidden = !username;
+    document.querySelector('#employee-name').textContent = username ?? '';
+    accountStatus.textContent = message;
+    if (!username) {
+      sessionId = undefined;
+      previewId = undefined;
+      requestForm.reset();
+      templateForm.reset();
+      approvedTemplates = [];
+      savedTemplate.replaceChildren();
+      templateForm.hidden = true;
+      questions.replaceChildren();
+      document.querySelector('#draft').value = '';
+      document.querySelector('#prompt').textContent = '';
+      document.querySelector('#sources').replaceChildren();
+      document.querySelector('#usage').replaceChildren();
+      result.hidden = answersForm.hidden = previewPanel.hidden = true;
+      status.textContent = templateStatus.textContent = '';
+      updateTemplateFields();
+    }
+  }
+
+  document.querySelector('#account-mode').addEventListener('click', event => {
+    accountMode = accountMode === 'login' ? 'register' : 'login';
+    const registering = accountMode === 'register';
+    document.querySelector('#account-title').textContent = registering ? 'Çalışan hesabı oluştur' : 'Çalışan girişi';
+    document.querySelector('#account-submit').textContent = registering ? 'Hesap oluştur' : 'Oturum aç';
+    event.currentTarget.textContent = registering ? 'Girişe dön' : 'Kayıt ol';
+    password.autocomplete = registering ? 'new-password' : 'current-password';
+    document.querySelector('#password-hint').hidden = !registering;
+    if (registering) {
+      password.minLength = 8;
+      password.pattern = '.*[0-9].*';
+      password.setAttribute('aria-describedby', 'password-hint');
+    } else {
+      for (const attribute of ['minlength', 'pattern', 'aria-describedby']) {
+        password.removeAttribute(attribute);
+      }
+    }
+    password.value = '';
+    accountStatus.textContent = '';
+  });
+
+  accountForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    try {
+      const data = await post('/api/account', {
+        action: accountMode, username: document.querySelector('#username').value, password: password.value,
+      });
+      setAccount(data.username);
+      await refreshTemplates();
+    } catch (error) {
+      accountStatus.textContent = error.message;
+    } finally {
+      password.value = '';
+      setBusy(false);
+    }
+  });
+
+  document.querySelector('#logout').addEventListener('click', async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await post('/api/account', {action: 'logout'});
+      accountForm.reset();
+      setAccount(null, 'Oturum kapatıldı.');
+    } catch (error) {
+      accountStatus.textContent = error.message;
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  post('/api/account', {action: 'status'}).then(data => {
+    setAccount(data.username);
+    if (data.username) return refreshTemplates();
+  }).catch(error => setAccount(null, error.message));
 </script>
 </body>
 </html>

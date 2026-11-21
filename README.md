@@ -16,6 +16,8 @@ python -m venv .venv
 
 [Netle’yi tarayıcıda aç](http://127.0.0.1:8000). VS Code'da terminal komutu yerine **Run and Debug → Netle’yi Başlat → ▶** seçeneğini veya **F5** tuşunu kullanabilirsin. Bu seçenek, Python ve Python Debugger eklentileriyle proje klasöründeki `.venv` ortamını kullanır.
 
+İlk kullanımda **Kayıt ol** ile bir yerel çalışan hesabı oluştur. Sonraki kullanımlarda aynı hesapla **Oturum aç** seçeneğini kullan. Hesaplar ve oturumlar yerel SQLite dosyasında saklanır. Her çalışan kendi iade oturumunu sürdürebilir. Onaylı prompt şablonları uygulamadaki çalışanlara ortak sunulur. Bu kayıt ekranı yerel pilot içindir ve şirket kimlik sağlayıcısıyla bağlantı kurmaz.
+
 ## Demo
 
 | İstek örneği | Beklenen davranış |

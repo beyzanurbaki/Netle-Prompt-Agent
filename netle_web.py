@@ -13,6 +13,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from netle import CREATE_CALLS
+from netle_auth import account_action, employee, setup
 from refund_demo import chat
 from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, make_graph
 from refund_template import (
@@ -129,7 +130,7 @@ def intake(request):
     return flow, facts
 
 
-def reply(db_path, payload):
+def reply(db_path, payload, employee_id=None):
     action = payload.get("action")
     if action == "start":
         request = payload.get("request", "").strip()
@@ -157,6 +158,15 @@ def reply(db_path, payload):
     config = {"configurable": {"thread_id": session_id}}
     with (closing(sqlite3.connect(db_path, check_same_thread=False)) as db,
           SqliteSaver.from_conn_string(db_path) as saver):
+        if employee_id is not None:
+            if action == "start":
+                with db:
+                    db.execute("INSERT INTO employee_refunds VALUES (?, ?)", (session_id, employee_id))
+            elif not db.execute(
+                "SELECT 1 FROM employee_refunds WHERE refund_id = ? AND employee_id = ?",
+                (session_id, employee_id),
+            ).fetchone():
+                raise ValueError("Bu hesaba ait devam edilebilir bir iade oturumu bulunamadı.")
         db.execute(CREATE_CALLS)
         graph = make_graph(db, saver)
         if action == "resume":
@@ -293,11 +303,13 @@ def template_action(db_path, payload):
 
 
 class Handler(BaseHTTPRequestHandler):
-    def send_content(self, status, content_type, body):
+    def send_content(self, status, content_type, body, set_cookie=None):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if set_cookie:
+            self.send_header("Set-Cookie", set_cookie)
         self.end_headers()
         self.wfile.write(body)
 
@@ -308,17 +320,35 @@ class Handler(BaseHTTPRequestHandler):
         self.send_content(200, "text/html; charset=utf-8", PAGE.read_bytes())
 
     def do_POST(self):
-        actions = {"/api/refund": reply, "/api/templates": template_action}
-        action = actions.get(self.path)
-        if action is None:
+        if self.path not in ("/api/account", "/api/refund", "/api/templates"):
             self.send_error(404)
             return
+        port = self.server.server_port
+        if self.headers.get("Host") not in (f"127.0.0.1:{port}", f"localhost:{port}"):
+            self.send_error(403)
+            return
+        set_cookie = None
         try:
             length = int(self.headers.get("Content-Length", 0))
             if self.headers.get_content_type() != "application/json" or not 0 < length <= 16000:
                 raise ValueError("Geçersiz istek.")
-            result = action(self.server.db_path, json.loads(self.rfile.read(length)))
+            payload = json.loads(self.rfile.read(length))
+            cookie_header = self.headers.get("Cookie", "")
+            with closing(sqlite3.connect(self.server.db_path)) as auth_db:
+                setup(auth_db)
+                if self.path == "/api/account":
+                    result, set_cookie = account_action(auth_db, payload, cookie_header)
+                    account = None
+                else:
+                    account = employee(auth_db, cookie_header)
             status = 200
+            if self.path != "/api/account":
+                if account is None:
+                    status, result = 401, {"error": "Devam etmek için oturum aç."}
+                elif self.path == "/api/refund":
+                    result = reply(self.server.db_path, payload, account[0])
+                else:
+                    result = template_action(self.server.db_path, payload)
         except IntakeError as error:
             status, result = 400, {"error": str(error), "code": error.code}
         except (ValueError, TypeError, AttributeError, KeyError) as error:
@@ -326,7 +356,7 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, sqlite3.Error):
             status, result = 503, {"error": "Ollama veya SQLite erişilemedi. Yerel servisi kontrol edip tekrar dene."}
         self.send_content(status, "application/json; charset=utf-8",
-                          json.dumps(result, ensure_ascii=False).encode("utf-8"))
+                          json.dumps(result, ensure_ascii=False).encode("utf-8"), set_cookie)
 
 
 def main():
