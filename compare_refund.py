@@ -4,12 +4,13 @@ import argparse
 import json
 import sqlite3
 from contextlib import closing
+from dataclasses import asdict
 from uuid import uuid4
 
 from netle import CREATE_CALLS
 from rag import DATA_DIR, embed, embed_documents, rank, scenario_query
 from refund_demo import chat
-from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, required_sources
+from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt
 from source_validation import load_reviewed_sources
 
 
@@ -36,6 +37,18 @@ def comparison_state(facts):
     return {"flow": "hygiene" if facts.get("hijyen_muhurlu") else "standard", "facts": facts}
 
 
+def required_demo_sources(state):
+    standard = ("IADE-POL#P1", "DESTEK-REH#R1")
+    if state["flow"] == "damage":
+        return ("IADE-POL#P3", "DESTEK-REH#R2")
+    if state["flow"] == "hygiene":
+        hygiene = ("IADE-POL#P2",)
+        if state["facts"].get("hijyen_muhru_acik") is False:
+            return hygiene + standard
+        return hygiene
+    return standard
+
+
 def compare(db, args, run_id, scenario, chunks, vectors):
     scenario_id = scenario["id"]
     call_id = f"{run_id}:{scenario_id}"
@@ -44,7 +57,7 @@ def compare(db, args, run_id, scenario, chunks, vectors):
     query, = embed(db, call_id, args.embed_model, [scenario_query(scenario, clarified=True)],
                    "compare_embed_query")
     ranked = [chunk for chunk, _ in rank(query, chunks, vectors)]
-    required = set(required_sources(state))
+    required = set(required_demo_sources(state))
     sources = [chunk for chunk in ranked if chunk.source in required and chunk.version == "1.0"]
     if {chunk.source for chunk in sources} != required:
         raise ValueError(f"{scenario_id} için incelenmiş v1.0 kaynakları eksik.")
@@ -53,18 +66,19 @@ def compare(db, args, run_id, scenario, chunks, vectors):
         f"Doğrulanmış bilgiler:\n{json.dumps(facts, ensure_ascii=False)}\n\nŞirket kaynakları:\n"
         + "\n\n".join(f"[{chunk.source} · v{chunk.version}] {chunk.title}\n{chunk.text}" for chunk in sources)
     )
-    improved = build_prompt(state)
+    improved = build_prompt({**state, "scenario": {"ilk_istek": scenario["ilk_istek"]},
+                             "sources": [asdict(chunk) for chunk in sources]})
     methods = [
         ("original", scenario["ilk_istek"], []),
         ("direct_rag", f"{scenario['ilk_istek']}\n\n{context}", source_ids),
-        ("netle", f"{context}\n\nGörev:\n{improved['prompt']}", source_ids),
+        ("netle", improved["prompt"], source_ids),
     ]
     print(f"\n{scenario_id} · Ortak kaynaklar: {', '.join(source_ids)}")
     for method, prompt, method_sources in methods:
         operation = f"compare_{method}"
         raw = chat(db, call_id, args.chat_model, operation, CUSTOMER_MESSAGE_RULE, prompt)
-        use_reviewed = method == "netle" and raw != improved["reviewed_message"]
-        draft = improved["reviewed_message"] if use_reviewed else raw
+        use_reviewed = False
+        draft = raw
         with db:
             db.execute(
                 "INSERT INTO comparison_answers VALUES (?, ?, ?, ?, ?, ?)",

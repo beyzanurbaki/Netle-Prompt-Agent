@@ -2,10 +2,12 @@
 
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import time
 from http.cookies import CookieError, SimpleCookie
+from pathlib import Path
 
 
 COOKIE = "netle_session"
@@ -19,7 +21,8 @@ def setup(db):
             id INTEGER PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             salt BLOB NOT NULL,
-            password_hash BLOB NOT NULL
+            password_hash BLOB NOT NULL,
+            role TEXT NOT NULL DEFAULT 'employee'
         );
         CREATE TABLE IF NOT EXISTS employee_sessions (
             token_hash TEXT PRIMARY KEY,
@@ -31,6 +34,51 @@ def setup(db):
             employee_id INTEGER NOT NULL REFERENCES employees(id)
         );
     """)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(employees)")}
+    if "role" not in columns:
+        db.execute("ALTER TABLE employees ADD COLUMN role TEXT NOT NULL DEFAULT 'employee'")
+    if not db.execute("SELECT 1 FROM employees WHERE role = 'admin' LIMIT 1").fetchone():
+        first = db.execute("SELECT id FROM employees ORDER BY id LIMIT 1").fetchone()
+        if first:
+            with db:
+                db.execute("UPDATE employees SET role = 'admin' WHERE id = ?", (first[0],))
+
+
+def ensure_admin_from_env(db):
+    """Use local .env credentials as the single configured administrator."""
+    env_path = Path(__file__).with_name(".env")
+    values = {}
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip().strip("\"'")
+    username = os.environ.get("NETLE_ADMIN_USERNAME", values.get("NETLE_ADMIN_USERNAME", "")).strip().lower()
+    password = os.environ.get("NETLE_ADMIN_PASSWORD", values.get("NETLE_ADMIN_PASSWORD", ""))
+    if not username and not password:
+        return None
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,39}", username):
+        raise ValueError(".env içindeki NETLE_ADMIN_USERNAME 3–40 karakter olmalı; harf, sayı, nokta, tire veya alt çizgi kullanılmalı.")
+    if len(password) < 8 or len(password) > 128 or not re.search(r"[0-9]", password):
+        raise ValueError(".env içindeki NETLE_ADMIN_PASSWORD en az 8 karakter ve bir rakam içermeli.")
+    salt = secrets.token_bytes(16)
+    with db:
+        db.execute("UPDATE employees SET role='employee' WHERE role='admin'")
+        existing = db.execute("SELECT id FROM employees WHERE username=?", (username,)).fetchone()
+        if existing:
+            employee_id = existing[0]
+            db.execute("UPDATE employees SET salt=?, password_hash=?, role='admin' WHERE id=?",
+                       (salt, password_hash(password, salt), employee_id))
+            db.execute("DELETE FROM employee_sessions WHERE employee_id=?", (employee_id,))
+        else:
+            cursor = db.execute(
+                "INSERT INTO employees (username,salt,password_hash,role) VALUES (?,?,?,'admin')",
+                (username, salt, password_hash(password, salt)),
+            )
+            employee_id = cursor.lastrowid
+    return username
 
 
 def password_hash(password, salt):
@@ -52,7 +100,7 @@ def employee(db, cookie_header):
     if not key:
         return None
     return db.execute(
-        "SELECT e.id, e.username FROM employee_sessions AS s "
+        "SELECT e.id, e.username, e.role FROM employee_sessions AS s "
         "JOIN employees AS e ON e.id = s.employee_id "
         "WHERE s.token_hash = ? AND s.expires_at > ?", (key, int(time.time())),
     ).fetchone()
@@ -67,11 +115,54 @@ def account_action(db, payload, cookie_header):
     old_key = session_hash(cookie_header)
     if action == "status":
         account = employee(db, cookie_header)
-        return {"username": account[1] if account else None}, None
+        return {"username": account[1] if account else None,
+                "role": account[2] if account else None}, None
     if action == "logout":
         with db:
             db.execute("DELETE FROM employee_sessions WHERE token_hash = ?", (old_key,))
         return {"username": None}, cookie()
+    if action == "reset_employee_password":
+        account = employee(db, cookie_header)
+        if account is None or account[2] != "admin":
+            raise ValueError("Çalışan parolasını yalnızca yönetici sıfırlayabilir.")
+        username = payload.get("username")
+        if not isinstance(username, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,39}", username.strip().lower()):
+            raise ValueError("Geçerli bir çalışan kullanıcı adı gir.")
+        username = username.strip().lower()
+        temporary_password = secrets.token_urlsafe(18) + "1"
+        salt = secrets.token_bytes(16)
+        with db:
+            updated = db.execute(
+                "UPDATE employees SET salt = ?, password_hash = ? WHERE username = ? AND role = 'employee'",
+                (salt, password_hash(temporary_password, salt), username),
+            )
+            if not updated.rowcount:
+                raise ValueError("Bu kullanıcı adıyla bir çalışan hesabı bulunamadı.")
+            db.execute(
+                "DELETE FROM employee_sessions WHERE employee_id = (SELECT id FROM employees WHERE username = ?)",
+                (username,),
+            )
+        return {"temporary_password": temporary_password}, None
+    if action == "change_password":
+        account = employee(db, cookie_header)
+        if account is None:
+            raise ValueError("Parola değiştirmek için yeniden oturum aç.")
+        current = payload.get("current_password", "")
+        new_password = payload.get("new_password", "")
+        if not isinstance(current, str) or not 1 <= len(current) <= 128:
+            raise ValueError("Mevcut parolanı gir.")
+        if not isinstance(new_password, str) or not 8 <= len(new_password) <= 128 or not re.search(r"[0-9]", new_password):
+            raise ValueError("Yeni parola en az 8 karakter ve en az bir rakam içermeli.")
+        row = db.execute("SELECT salt,password_hash FROM employees WHERE id = ?", (account[0],)).fetchone()
+        if not hmac.compare_digest(password_hash(current, row[0]), row[1]):
+            raise ValueError("Mevcut şifrenizi yanlış girdiniz.")
+        salt = secrets.token_bytes(16)
+        with db:
+            updated = db.execute("UPDATE employees SET salt = ?, password_hash = ? WHERE id = ? AND password_hash = ?",
+                                 (salt, password_hash(new_password, salt), account[0], row[1]))
+            if not updated.rowcount:
+                raise ValueError("Parola değişti. Yeniden oturum aç.")
+        return {"username": account[1], "role": account[2]}, None
     if action not in ("register", "login"):
         raise ValueError("Bilinmeyen oturum işlemi.")
 
@@ -88,8 +179,10 @@ def account_action(db, payload, cookie_header):
         if action == "register":
             salt = secrets.token_bytes(16)
             added = db.execute(
-                "INSERT INTO employees (username,salt,password_hash) VALUES (?,?,?) "
-                "ON CONFLICT(username) DO NOTHING", (username, salt, password_hash(password, salt)),
+                "INSERT INTO employees (username,salt,password_hash,role) "
+                "VALUES (?,?,?,CASE WHEN NOT EXISTS (SELECT 1 FROM employees WHERE role = 'admin') "
+                "THEN 'admin' ELSE 'employee' END) ON CONFLICT(username) DO NOTHING",
+                (username, salt, password_hash(password, salt)),
             )
             if not added.rowcount:
                 raise ValueError("Bu kullanıcı adı zaten kayıtlı.")
@@ -106,8 +199,15 @@ def account_action(db, payload, cookie_header):
         now = int(time.time())
         token = secrets.token_urlsafe(32)
         db.execute("DELETE FROM employee_sessions WHERE token_hash = ? OR expires_at <= ?", (old_key, now))
-        db.execute(
-            "INSERT INTO employee_sessions VALUES (?,?,?)",
-            (hashlib.sha256(token.encode("ascii")).hexdigest(), employee_id, now + SESSION_SECONDS),
-        )
-    return {"username": username}, cookie(token, SESSION_SECONDS)
+        session = (hashlib.sha256(token.encode("ascii")).hexdigest(), employee_id, now + SESSION_SECONDS)
+        if action == "login":
+            added_session = db.execute(
+                "INSERT INTO employee_sessions SELECT ?, ?, ? FROM employees WHERE id = ? AND password_hash = ?",
+                (*session, employee_id, row[2]),
+            )
+            if not added_session.rowcount:
+                raise ValueError("Kullanıcı adı veya parola yanlış.")
+        else:
+            db.execute("INSERT INTO employee_sessions VALUES (?,?,?)", session)
+    role = db.execute("SELECT role FROM employees WHERE id = ?", (employee_id,)).fetchone()[0]
+    return {"username": username, "role": role}, cookie(token, SESSION_SECONDS)

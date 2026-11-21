@@ -2,3 +2,4 @@
 /__pycache__/
 /.netle-deps/
 /.venv/
+/.env

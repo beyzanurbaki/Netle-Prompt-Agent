@@ -9,47 +9,38 @@ from dataclasses import asdict
 from uuid import uuid4
 
 from netle import CREATE_CALLS
-from rag import DATA_DIR
+from company_documents import (active_chunks, retrieve as retrieve_company_documents,
+                               setup as setup_documents)
 from refund_demo import chat
-from source_validation import load_reviewed_sources
 
 
 NAME = "standart-iade"
-STANDARD_SOURCES = ("IADE-POL#P1", "DESTEK-REH#R1")
-TEMPLATE = """{urun} için müşteriye kısa, nazik ve doğrudan hitap eden bir Türkçe yanıt yaz.
-
-Teslimattan geçen takvim günü: {teslimattan_sonra_gun}
+TEMPLATE = """{urun} ürünü için iade talebi.
+Teslimattan geçen gün: {teslimattan_sonra_gun}
 Ürün kullanıldı mı: {kullanildi}
 Aksesuarlar eksiksiz mi: {aksesuarlar_tam}
 Kutu açıldı mı: {kutu_acik}
-
-Standart iade süresi teslimattan itibaren 30 takvim günüdür. Teslimat günü 0. gündür ve 30. gün süreye dahildir. Ürün kullanılmamış ve tüm aksesuarları eksiksiz olmalıdır. Kutunun açılması tek başına engel değildir.
-
-Tüm koşullar doğrulanmışsa müşteriye Hesabım → Siparişlerim → İade Talebi yolunu göster. Bir koşulun karşılanmadığı kesinleşmişse nedenini açıkla. Uygunluk belirlenemiyorsa yalnızca kararı etkileyen eksik bilgileri sor. Açılmamış bir iade kaydının açıldığını söyleme.
-
-Yalnızca müşteri mesajını yaz. İç notları, ham görev bilgilerini ve kaynak kimliklerini mesajın dışında tut."""
+İsteği yalnızca etkin ve onaylı şirket belgelerine göre değerlendir."""
 
 DAMAGE = "hasarli-teslimat"
 HYGIENE = "hijyen-muhurlu-urun"
 TEMPLATES = {
-    NAME: (TEMPLATE, STANDARD_SOURCES),
-    DAMAGE: ("""Hasarlı ulaşan {urun} için kısa ve nazik bir müşteri mesajı yaz.
+    NAME: TEMPLATE,
+    DAMAGE: """Hasarlı ulaştığı bildirilen {urun} ürünü için iade talebi.
 
 Sipariş numarası mevcut mu: {siparis_no_var}
 Hasarlı ürünün fotoğrafı mevcut mu: {urun_fotografi_var}
 Dış ambalajın fotoğrafı mevcut mu: {ambalaj_fotografi_var}
 
-Talebi hasarlı teslimat incelemesine yönlendir. Yalnızca eksik veya bilinmeyen bilgileri iste. Standart iade süresine göre ret verme. İade, değişim veya kesin sonuç süresi sözü verme. Yalnızca müşteri mesajını yaz.""",
-             ("IADE-POL#P3", "DESTEK-REH#R2")),
-    HYGIENE: ("""Hijyen mühürlü {urun} için kısa ve nazik bir müşteri mesajı yaz.
+Bu bilgileri yalnızca etkin ve onaylı şirket belgelerine göre değerlendir.""",
+    HYGIENE: """Hijyen mühürlü olduğu bildirilen {urun} ürünü için iade talebi.
 
 Hijyen mührü açıldı mı: {hijyen_muhru_acik}
 Teslimattan geçen takvim günü: {teslimattan_sonra_gun}
 Ürün kullanıldı mı: {kullanildi}
 Aksesuarlar eksiksiz mi: {aksesuarlar_tam}
 
-Mühür durumu bilinmiyorsa önce onu sor. Mühür açıksa standart iade yapılamadığını açıkla. Mühür sağlamsa 30. gün dahil olmak üzere iade süresini, kullanım ve aksesuar koşullarını değerlendir. Uygunsa Hesabım → Siparişlerim → İade Talebi yolunu göster ve 30. günde bugün başvurulması gerektiğini belirt. Yalnızca müşteri mesajını yaz.""",
-              ("IADE-POL#P2", *STANDARD_SOURCES)),
+Bu bilgileri yalnızca etkin ve onaylı şirket belgelerine göre değerlendir.""",
 }
 
 CREATE_TEMPLATES = """
@@ -67,30 +58,30 @@ def digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def current_sources(name=NAME):
+def current_sources(name, db):
     if name not in TEMPLATES:
         raise ValueError("Şablon bulunamadı.")
-    _, required = TEMPLATES[name]
-    chunks = {chunk.source: chunk for chunk in load_reviewed_sources(DATA_DIR / "belgeler", required)}
+    chunks = active_chunks(db)
+    if not chunks:
+        raise ValueError("Şablon için önce yönetici tarafından onaylanmış belge eklenmeli.")
     sources = []
-    for source_id in required:
-        chunk = chunks[source_id]
+    for chunk in chunks:
         metadata = asdict(chunk)
         metadata["sha256"] = digest(metadata.pop("text"))
         sources.append(metadata)
     return sources
 
 
-def proposal(name=NAME):
-    sources = current_sources(name)
-    template, _ = TEMPLATES[name]
+def proposal(name, db):
+    sources = current_sources(name, db)
+    template = TEMPLATES[name]
     sources_json = json.dumps(sources, ensure_ascii=False, sort_keys=True)
     approval_id = digest(json.dumps([name, template, sources_json], ensure_ascii=False))
     return approval_id, sources_json
 
 
 def approve_template(db, approval_id, name=NAME):
-    expected_id, sources_json = proposal(name)
+    expected_id, sources_json = proposal(name, db)
     if approval_id != expected_id:
         raise ValueError("Onay kimliği güncel önizlemeyle eşleşmiyor.")
     with db:
@@ -98,7 +89,7 @@ def approve_template(db, approval_id, name=NAME):
         db.execute(
             "INSERT INTO prompt_templates (approval_id, name, prompt, sources_json) "
             "VALUES (?, ?, ?, ?) ON CONFLICT(approval_id) DO NOTHING",
-            (approval_id, name, TEMPLATES[name][0], sources_json),
+            (approval_id, name, TEMPLATES[name], sources_json),
         )
 
 
@@ -110,7 +101,7 @@ def approved_template(db, approval_id):
         raise ValueError("Onaylı şablon bulunamadı.")
     name, template, sources_json = row
     sources = json.loads(sources_json)
-    if sources != current_sources(name):
+    if sources != current_sources(name, db):
         raise ValueError("Kaynaklar değişti. Şablon yeniden incelenip onaylanmalı.")
     return name, template, sources
 
@@ -138,16 +129,19 @@ def main():
 
     try:
         if args.action == "preview":
-            approval_id, sources_json = proposal()
-            print(TEMPLATE)
-            print("\nDayanak belgeler")
-            for source in json.loads(sources_json):
-                print(f"- {source['source']} · v{source['version']} · {source['effective_date']}")
-            print(f"\nOnay kimliği: {approval_id}")
+            with closing(sqlite3.connect(args.db)) as db:
+                setup_documents(db)
+                approval_id, sources_json = proposal(NAME, db)
+                print(TEMPLATE)
+                print("\nDayanak belgeler")
+                for source in json.loads(sources_json):
+                    print(f"- {source['source']} · v{source['version']} · {source['effective_date']}")
+                print(f"\nOnay kimliği: {approval_id}")
             return
 
         if args.action == "approve":
             with closing(sqlite3.connect(args.db)) as db:
+                setup_documents(db)
                 approve_template(db, args.approval_id)
             print(f"Onaylı şablon kaydedildi: {NAME} ({args.approval_id})")
             return
@@ -158,6 +152,7 @@ def main():
             raise ValueError("Ürün adı tek satır ve dolu olmalı.")
         labels = {"yes": "Evet", "no": "Hayır", "unknown": "Bilinmiyor"}
         with closing(sqlite3.connect(args.db)) as db:
+            setup_documents(db)
             db.execute(CREATE_TEMPLATES)
             prompt = render(db, args.approval_id, {
                 "urun": args.product.strip(),
@@ -170,19 +165,17 @@ def main():
                 print(prompt)
                 return
 
-            from refund_graph import CUSTOMER_MESSAGE_RULE, customer_message
+            from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, customer_message
 
             db.execute(CREATE_CALLS)
             run_id = uuid4().hex
             print(f"Çalıştırma kimliği: {run_id}", flush=True)
-            if (args.days is not None and args.days <= 30
-                    and args.used == "no" and args.accessories == "yes"):
-                prompt += (
-                    "\n\nBu örnekte standart iade koşulları doğrulandı. "
-                    "Yalnızca şu kısa müşteri mesajı biçiminde yanıtla: "
-                    "Merhaba, ürününüz için iade talebi oluşturabilirsiniz. "
-                    "Hesabım → Siparişlerim → İade Talebi adımlarını izleyebilirsiniz."
-                )
+            chunks = retrieve_company_documents(db, run_id, "embeddinggemma:latest", prompt)
+            prompt = build_prompt({"scenario": {"ilk_istek": prompt}, "facts": {
+                "urun": args.product.strip(), "teslimattan_sonra_gun": args.days,
+                "kullanildi": args.used == "yes" if args.used != "unknown" else None,
+                "aksesuarlar_tam": args.accessories == "yes" if args.accessories != "unknown" else None,
+            }, "sources": [asdict(chunk) for chunk in chunks]})["prompt"]
             draft = chat(
                 db, run_id, args.chat_model, "template_generate_draft",
                 CUSTOMER_MESSAGE_RULE + " Merhaba ile başla ve en fazla üç cümle yaz. "

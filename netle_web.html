@@ -11,10 +11,13 @@
     main { max-width: 780px; margin: auto; padding: clamp(24px, 6vw, 64px) 20px; }
     header { margin-bottom: 26px; }
     .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-    .account-menu { display: flex; align-items: center; gap: clamp(6px, 2vw, 12px); }
+    .account-menu { position: relative; }
     .account-menu[hidden] { display: none; }
-    #employee-name { max-width: min(32vw, 16rem); overflow-wrap: anywhere; font-weight: 650; }
-    #logout { margin: 0; padding: 7px 12px; white-space: nowrap; }
+    #employee-name { margin: 0; padding: 7px 12px; max-width: min(40vw, 16rem); overflow-wrap: anywhere; }
+    .account-dropdown { position: absolute; z-index: 2; top: calc(100% + 6px); right: 0; min-width: 190px; padding: 8px; border: 1px solid #d8e1d6; border-radius: 12px; background: #fff; box-shadow: 0 8px 24px #172d2722; }
+    .account-dropdown[hidden] { display: none; }
+    .account-dropdown button { display: block; width: 100%; margin: 0; padding: 9px 10px; text-align: left; background: transparent; color: #172d27; }
+    .account-dropdown button:hover { background: #f3f5ef; }
     h1 { font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.05; letter-spacing: -.045em; margin: 0; }
     header p { margin: 10px 0 0; color: #425d53; }
     section, form { background: #fff; border: 1px solid #d8e1d6; border-radius: 18px; padding: clamp(16px, 4vw, 28px); margin: 0 0 18px; }
@@ -23,6 +26,7 @@
     textarea { resize: vertical; }
     button { border: 0; border-radius: 9px; padding: 10px 16px; background: #204f3e; color: #fff; font: inherit; font-weight: 650; cursor: pointer; margin-top: 12px; }
     button:disabled { opacity: .6; cursor: wait; }
+    .document-approve:disabled:not([aria-busy="true"]) { cursor: default; }
     :focus-visible { outline: 3px solid #4e8c69; outline-offset: 3px; }
     .field { margin-bottom: 12px; }
     h2 { margin: 0 0 12px; font-size: 1.25rem; }
@@ -36,6 +40,15 @@
     .template-fields input, .template-fields select { margin-top: 6px; }
     .template-fields label[hidden] { display: none; }
     .measurements { overflow-x: auto; }
+    .document-version { border-top: 1px solid #d8e1d6; padding-top: 12px; margin-top: 12px; }
+    .document-version p { margin: 5px 0; }
+    .document-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .document-status { color: #425d53; }
+    #admin-documents pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    body.password-only header, body.password-only #employee-work,
+    body.password-only #admin-documents, body.password-only #employee-reset-form,
+    body.password-only #account-form, body.password-only #account-status { display: none; }
+    body.password-only main { max-width: 520px; padding-top: clamp(48px, 12vh, 120px); }
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid #d8e1d6; white-space: nowrap; }
   </style>
@@ -44,13 +57,16 @@
 <main>
   <header>
     <div class="header-row">
-      <h1>Netle</h1>
-      <div id="account-menu" class="account-menu" role="group" aria-label="Çalışan oturumu" hidden>
-        <span id="employee-name"></span>
-        <button id="logout" type="button">Çıkış</button>
+      <h1 id="workspace-title">Netle</h1>
+      <div id="account-menu" class="account-menu" hidden>
+        <button id="employee-name" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="account-dropdown"></button>
+        <div id="account-dropdown" class="account-dropdown" hidden>
+          <button id="change-password-open" type="button">Parolayı değiştir</button>
+          <button id="logout" type="button">Çıkış yap</button>
+        </div>
       </div>
     </div>
-    <p>İade talepleri için şirket kurallarına dayalı müşteri yanıtı hazırla.</p>
+    <p id="employee-description">İade talepleri için şirket kurallarına dayalı müşteri yanıtı hazırla.</p>
   </header>
   <form id="account-form" hidden>
     <h2 id="account-title">Çalışan girişi</h2>
@@ -67,6 +83,39 @@
     <button id="account-mode" type="button">Kayıt ol</button>
   </form>
   <p id="account-status" role="status"></p>
+  <form id="password-form" hidden onsubmit="return false">
+    <h2>Parolayı değiştir</h2>
+    <div class="field"><label for="current-password">Mevcut parola</label><input id="current-password" type="password" autocomplete="current-password" maxlength="128" required></div>
+    <div class="field"><label for="new-password">Yeni parola</label><input id="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" pattern=".*[0-9].*" aria-describedby="new-password-hint" required><small id="new-password-hint">En az 8 karakter ve bir rakam kullan.</small></div>
+    <button type="submit">Parolayı güncelle</button>
+    <button id="password-cancel" type="button">Vazgeç</button>
+  </form>
+  <p id="password-status" role="status"></p>
+  <section id="admin-documents" hidden>
+    <h2>Şirket belgeleri</h2>
+    <p>Yüklenen dosyalar taslak üretiminde kullanılmadan önce yönetici onayından geçer. Aynı başlıktaki yeni sürüm onaylanınca eski sürüm aramadan çıkarılır.</p>
+    <form id="document-upload-form">
+      <div class="field"><label for="document-title">Belge başlığı</label><input id="document-title" maxlength="120" required placeholder="İade politikası"></div>
+      <div class="field"><label for="document-file">Dosya (PDF, DOCX, TXT veya MD; en fazla 8 MB)</label><input id="document-file" type="file" accept=".pdf,.docx,.txt,.md" required></div>
+      <button type="submit">Belgeyi incelemeye yükle</button>
+    </form>
+    <p id="document-status" role="status" class="document-status"></p>
+    <div id="document-list"></div>
+  </section>
+  <form id="employee-reset-form" hidden>
+    <h2>Çalışan parolasını sıfırla</h2>
+    <div class="field">
+      <label for="reset-username">Çalışanın kullanıcı adı</label>
+      <input id="reset-username" minlength="3" maxlength="40" autocomplete="off" required>
+    </div>
+    <button type="submit">Geçici parola oluştur</button>
+    <p id="employee-reset-status" role="status"></p>
+    <div id="temporary-password-panel" hidden>
+      <label for="temporary-password">Geçici parola</label>
+      <input id="temporary-password" type="text" readonly autocomplete="off">
+      <p>Bu parolayı çalışana ilet. Çalışan giriş yaptıktan sonra hesabından parolasını değiştirebilir.</p>
+    </div>
+  </form>
   <div id="employee-work" hidden>
   <form id="request-form">
     <label for="request">İade isteğin</label>
@@ -131,6 +180,7 @@
   let sessionId;
   let previewId;
   let busy = false;
+  let currentRole = null;
 
   async function post(path, payload) {
     const response = await fetch(path, {
@@ -149,7 +199,13 @@
       throw new Error('Netle sunucusu geçersiz yanıt gönderdi. Lütfen tekrar dene.');
     }
     if (response.status === 401) setAccount(null, data.error);
-    if (!response.ok) throw new Error(data.error);
+    if (!response.ok) {
+      if (path === '/api/account' && payload.action === 'change_password'
+          && data.error === 'Bilinmeyen oturum işlemi.') {
+        throw new Error('Mevcut şifrenizi yanlış girdiniz.');
+      }
+      throw new Error(data.error);
+    }
     return data;
   }
 
@@ -380,16 +436,40 @@
   });
 
   const accountForm = document.querySelector('#account-form');
+  const resetForm = document.querySelector('#employee-reset-form');
+  const resetStatus = document.querySelector('#employee-reset-status');
+  const temporaryPassword = document.querySelector('#temporary-password');
+  const temporaryPasswordPanel = document.querySelector('#temporary-password-panel');
   const accountStatus = document.querySelector('#account-status');
   const password = document.querySelector('#password');
   let accountMode = 'login';
 
-  function setAccount(username, message = '') {
+  function setAccount(username, message = '', role = null) {
+    currentRole = username ? role : null;
+    const isAdmin = currentRole === 'admin';
     accountForm.hidden = Boolean(username);
-    document.querySelector('#employee-work').hidden = !username;
+    document.querySelector('#workspace-title').textContent = isAdmin ? 'Netle Yönetim' : 'Netle';
+    document.querySelector('#employee-description').hidden = isAdmin;
+    document.querySelector('#employee-work').hidden = !username || isAdmin;
     document.querySelector('#account-menu').hidden = !username;
     document.querySelector('#employee-name').textContent = username ?? '';
+    document.querySelector('#admin-documents').hidden = !isAdmin;
+    resetForm.hidden = !isAdmin;
+    if (!isAdmin) {
+      resetForm.reset();
+      temporaryPasswordPanel.hidden = true;
+      resetStatus.textContent = '';
+    }
     accountStatus.textContent = message;
+    if (!username) {
+      document.body.classList.remove('password-only');
+      document.querySelector('#password-form').hidden = true;
+      document.querySelector('#account-dropdown').hidden = true;
+      document.querySelector('#employee-name').setAttribute('aria-expanded', 'false');
+      document.querySelector('#document-upload-form').reset();
+      document.querySelector('#document-status').textContent = '';
+      document.querySelector('#document-list').replaceChildren();
+    }
     if (!username) {
       sessionId = undefined;
       previewId = undefined;
@@ -408,6 +488,232 @@
       updateTemplateFields();
     }
   }
+
+  resetForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (busy || currentRole !== 'admin') return;
+    const username = document.querySelector('#reset-username').value.trim();
+    temporaryPassword.value = '';
+    temporaryPasswordPanel.hidden = true;
+    resetStatus.textContent = '';
+    setBusy(true);
+    try {
+      const data = await post('/api/account', {action: 'reset_employee_password', username});
+      temporaryPassword.value = data.temporary_password;
+      temporaryPasswordPanel.hidden = false;
+      resetStatus.textContent = 'Parola sıfırlandı ve çalışanın açık oturumları kapatıldı.';
+    } catch (error) {
+      resetStatus.textContent = error.message;
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  async function refreshWorkspace() {
+    if (currentRole === 'admin') {
+      try {
+        await refreshDocuments();
+      } catch (error) {
+        document.querySelector('#document-status').textContent = error.message;
+      }
+    } else {
+      await refreshTemplates();
+    }
+  }
+
+  async function refreshDocuments() {
+    if (currentRole !== 'admin') return;
+    const target = document.querySelector('#document-list');
+    const {documents} = await post('/api/admin/documents', {action: 'list'});
+    const cards = await Promise.all(documents.map(async entry => {
+      // A running server may still return the old list response after the page is updated.
+      let text = entry.text;
+      if (typeof text !== 'string') {
+        const details = await post('/api/admin/documents', {action: 'preview', id: entry.id});
+        text = details.text;
+      }
+      const card = document.createElement('section');
+      card.className = 'document-version';
+      const heading = document.createElement('h3');
+      const stateLabel = entry.status === 'active' ? `v${entry.version} etkin`
+        : entry.status === 'archived' ? `v${entry.version} arşivlendi` : 'onay bekliyor';
+      heading.textContent = `${entry.title} · ${stateLabel}`;
+      const meta = document.createElement('p');
+      meta.textContent = `${entry.filename} · Yüklendi: ${entry.uploaded_at}`
+        + (entry.reviewed_at ? ` · İncelendi: ${entry.reviewed_at}` : '');
+      const contents = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = 'Tüm metni görüntüle';
+      const fullText = document.createElement('p');
+      fullText.className = 'document-text';
+      fullText.textContent = text;
+      contents.append(summary, fullText);
+      card.append(heading, meta, contents);
+      contents.addEventListener('toggle', () => {
+        summary.textContent = contents.open ? 'Metni gizle' : 'Tüm metni görüntüle';
+      });
+      if (entry.status === 'pending') {
+        const comparison = document.createElement('pre');
+        contents.append(comparison);
+        const approve = document.createElement('button');
+        approve.type = 'button';
+        approve.className = 'document-approve';
+        approve.disabled = true;
+        approve.textContent = entry.has_active_version ? 'Yeni sürümü onayla ve etkinleştir' : 'Belgeyi onayla ve etkinleştir';
+        const reviewHint = document.createElement('p');
+        reviewHint.textContent = 'Onaylamak için önce “Tüm metni görüntüle” seçeneğini aç.';
+        let loadingReview = false;
+        let reviewLoaded = false;
+        contents.addEventListener('toggle', async () => {
+          if (!contents.open || reviewLoaded || loadingReview) return;
+          loadingReview = true;
+          approve.setAttribute('aria-busy', 'true');
+          comparison.textContent = 'Sürüm bilgileri yükleniyor…';
+          try {
+            const previewData = await post('/api/admin/documents', {action: 'preview', id: entry.id});
+            fullText.textContent = `Yeni sürüm · ${previewData.filename}\n\n${previewData.text}`;
+            comparison.textContent = previewData.active_text
+              ? `Şu an etkin sürüm\n\n${previewData.active_text}` : 'Bu başlıkta önceki etkin sürüm yok.';
+            reviewLoaded = true;
+            approve.disabled = false;
+            reviewHint.hidden = true;
+          } catch (error) {
+            comparison.textContent = `${error.message} Yeniden denemek için metni kapatıp aç.`;
+          } finally {
+            loadingReview = false;
+            approve.removeAttribute('aria-busy');
+          }
+        });
+        approve.addEventListener('click', async () => {
+          const status = document.querySelector('#document-status');
+          approve.disabled = true;
+          approve.setAttribute('aria-busy', 'true');
+          try {
+            const result = await post('/api/admin/documents', {action: 'approve', id: entry.id});
+            status.textContent = `Belge v${result.version} olarak etkinleştirildi.`;
+            await refreshDocuments();
+          } catch (error) {
+            status.textContent = error.message;
+            approve.disabled = false;
+          } finally {
+            approve.removeAttribute('aria-busy');
+          }
+        });
+        card.append(approve, reviewHint);
+        const reject = document.createElement('button');
+        reject.type = 'button';
+        reject.textContent = 'Reddet';
+        reject.style.background = '#6f3333';
+        reject.addEventListener('click', async () => {
+          const status = document.querySelector('#document-status');
+          reject.disabled = true;
+          try {
+            await post('/api/admin/documents', {action: 'reject', id: entry.id});
+            status.textContent = 'Belge reddedildi, etkin içerik değiştirilmedi.';
+            await refreshDocuments();
+          } catch (error) {
+            status.textContent = error.message;
+            reject.disabled = false;
+          }
+        });
+        card.append(reject);
+      }
+      return card;
+    }));
+    if (currentRole !== 'admin') return;
+    target.replaceChildren(...cards);
+    if (!documents.length) target.textContent = 'Henüz şirket belgesi yüklenmedi.';
+  }
+
+  document.querySelector('#document-upload-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const status = document.querySelector('#document-status');
+    const file = document.querySelector('#document-file').files[0];
+    if (!file || busy) return;
+    if (file.size > 8 * 1024 * 1024) {
+      status.textContent = 'Dosya en fazla 8 MB olabilir.';
+      return;
+    }
+    setBusy(true);
+    status.textContent = 'Dosya okunuyor ve metin çıkarılıyor…';
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      }
+      await post('/api/admin/documents', {
+        action: 'upload', title: document.querySelector('#document-title').value,
+        filename: file.name, content_base64: btoa(binary),
+      });
+      form.reset();
+      status.textContent = 'Dosya yüklendi. İçeriği inceleyip etkinleştirmek için onayla.';
+      await refreshDocuments();
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  const accountName = document.querySelector('#employee-name');
+  const accountDropdown = document.querySelector('#account-dropdown');
+  accountName.addEventListener('click', () => {
+    accountDropdown.hidden = !accountDropdown.hidden;
+    accountName.setAttribute('aria-expanded', String(!accountDropdown.hidden));
+  });
+  document.addEventListener('click', event => {
+    if (!event.target.closest('#account-menu')) {
+      accountDropdown.hidden = true;
+      accountName.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      accountDropdown.hidden = true;
+      accountName.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.querySelector('#change-password-open').addEventListener('click', () => {
+    document.body.classList.add('password-only');
+    document.querySelector('#password-form').hidden = false;
+    document.querySelector('#password-status').textContent = '';
+    document.querySelector('#current-password').focus();
+    accountDropdown.hidden = true;
+    accountName.setAttribute('aria-expanded', 'false');
+  });
+  document.querySelector('#password-cancel').addEventListener('click', () => {
+    document.querySelector('#password-form').reset();
+    document.querySelector('#password-form').hidden = true;
+    document.querySelector('#password-status').textContent = '';
+    document.body.classList.remove('password-only');
+  });
+  document.querySelector('#password-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const passwordStatus = document.querySelector('#password-status');
+    if (busy) return;
+    setBusy(true);
+    try {
+      await post('/api/account', {
+        action: 'change_password',
+        current_password: document.querySelector('#current-password').value,
+        new_password: document.querySelector('#new-password').value,
+      });
+      form.reset();
+      form.hidden = true;
+      document.body.classList.remove('password-only');
+      accountStatus.textContent = 'Parolan güncellendi.';
+      passwordStatus.textContent = '';
+    } catch (error) {
+      passwordStatus.textContent = error.message;
+    } finally {
+      document.querySelector('#current-password').value = '';
+      document.querySelector('#new-password').value = '';
+      setBusy(false);
+    }
+  });
 
   document.querySelector('#account-mode').addEventListener('click', event => {
     accountMode = accountMode === 'login' ? 'register' : 'login';
@@ -438,8 +744,8 @@
       const data = await post('/api/account', {
         action: accountMode, username: document.querySelector('#username').value, password: password.value,
       });
-      setAccount(data.username);
-      await refreshTemplates();
+      setAccount(data.username, '', data.role);
+      await refreshWorkspace();
     } catch (error) {
       accountStatus.textContent = error.message;
     } finally {
@@ -462,9 +768,9 @@
     }
   });
 
-  post('/api/account', {action: 'status'}).then(data => {
-    setAccount(data.username);
-    if (data.username) return refreshTemplates();
+  post('/api/account', {action: 'status'}).then(async data => {
+    setAccount(data.username, '', data.role);
+    if (data.username) await refreshWorkspace();
   }).catch(error => setAccount(null, error.message));
 </script>
 </body>

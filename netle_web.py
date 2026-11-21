@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 from contextlib import closing
+from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from uuid import uuid4
@@ -13,9 +14,13 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from netle import CREATE_CALLS
-from netle_auth import account_action, employee, setup
+from netle_auth import account_action, employee, ensure_admin_from_env, setup
+from company_documents import (approve as approve_document,
+                               reject as reject_document,
+                               list_documents, retrieve as retrieve_company_documents,
+                               setup as setup_documents, upload as upload_document)
 from refund_demo import chat
-from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, make_graph
+from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, customer_message, make_graph
 from refund_template import (
     CREATE_TEMPLATES, DAMAGE, HYGIENE, NAME, TEMPLATES, approve_template,
     approved_template, current_sources, proposal,
@@ -237,16 +242,18 @@ def template_action(db_path, payload):
     action = payload.get("action")
     if action == "preview":
         name = payload.get("name", NAME)
-        approval_id, sources_json = proposal(name)
-        return {"approval_id": approval_id, "name": name, "prompt": TEMPLATES[name][0],
-                "sources": [source_label(item) for item in json.loads(sources_json)]}
+        with closing(sqlite3.connect(db_path)) as db:
+            setup_documents(db)
+            approval_id, sources_json = proposal(name, db)
+            return {"approval_id": approval_id, "name": name, "prompt": TEMPLATES[name],
+                    "sources": [source_label(item) for item in json.loads(sources_json)]}
     with closing(sqlite3.connect(db_path)) as db:
         db.execute(CREATE_TEMPLATES)
         if action == "list":
             sources = {}
             for name in TEMPLATES:
                 try:
-                    sources[name] = current_sources(name)
+                    sources[name] = current_sources(name, db)
                 except (ValueError, OSError):
                     sources[name] = None
             return {"templates": [
@@ -265,7 +272,7 @@ def template_action(db_path, payload):
         if action != "use":
             raise ValueError("Bilinmeyen şablon işlemi.")
 
-        name, template, sources = approved_template(db, payload["approval_id"])
+        name, template, _ = approved_template(db, payload["approval_id"])
         fields = TEMPLATE_FIELDS[name]
         product = payload.get("product", "").strip()
         days = payload.get("days") if "days" in fields else None
@@ -285,19 +292,18 @@ def template_action(db_path, payload):
             facts[field] = value
             answers[field] = labels[value]
         prompt = template.format_map(answers)
-        if name == HYGIENE and facts["hijyen_muhru_acik"] is None:
-            reviewed = "Merhaba, iade talebinizi değerlendirebilmemiz için ürünün hijyen mührünün açılıp açılmadığını paylaşabilir misiniz?"
-        else:
-            flow = {DAMAGE: "damage", HYGIENE: "hygiene"}.get(name, "standard")
-            reviewed = build_prompt({"flow": flow, "facts": facts})["reviewed_message"]
         run_id = uuid4().hex
         db.execute(CREATE_CALLS)
+        doc_chunks = retrieve_company_documents(db, run_id, "embeddinggemma:latest", prompt)
+        sources = [asdict(chunk) for chunk in doc_chunks]
+        prompt = build_prompt({"scenario": {"ilk_istek": prompt}, "facts": facts,
+                               "sources": sources})["prompt"]
         draft = chat(
             db, run_id, "qwen2.5:1.5b", "template_generate_draft",
-            CUSTOMER_MESSAGE_RULE + " Son satırdaki müşteri mesajını aynen döndür.",
-            f"{prompt}\n\nMüşteri mesajı:\n{reviewed}",
+            CUSTOMER_MESSAGE_RULE + " Yanıtı yalnızca verilen onaylı belge kanıtlarına dayandır.",
+            prompt,
         )
-        return {"flow": TEMPLATE_LABELS[name], "draft": draft if draft == reviewed else reviewed,
+        return {"flow": TEMPLATE_LABELS[name], "draft": customer_message(draft),
                 "prompt": prompt, "sources": [source_label(item) for item in sources],
                 "usage": usage(db, run_id), "session_id": run_id}
 
@@ -320,7 +326,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_content(200, "text/html; charset=utf-8", PAGE.read_bytes())
 
     def do_POST(self):
-        if self.path not in ("/api/account", "/api/refund", "/api/templates"):
+        if self.path not in ("/api/account", "/api/refund", "/api/templates", "/api/admin/documents"):
             self.send_error(404)
             return
         port = self.server.server_port
@@ -330,19 +336,61 @@ class Handler(BaseHTTPRequestHandler):
         set_cookie = None
         try:
             length = int(self.headers.get("Content-Length", 0))
-            if self.headers.get_content_type() != "application/json" or not 0 < length <= 16000:
+            if self.headers.get_content_type() != "application/json" or not 0 < length <= 12 * 1024 * 1024:
                 raise ValueError("Geçersiz istek.")
             payload = json.loads(self.rfile.read(length))
             cookie_header = self.headers.get("Cookie", "")
             with closing(sqlite3.connect(self.server.db_path)) as auth_db:
                 setup(auth_db)
+                setup_documents(auth_db)
                 if self.path == "/api/account":
                     result, set_cookie = account_action(auth_db, payload, cookie_header)
                     account = None
                 else:
                     account = employee(auth_db, cookie_header)
             status = 200
-            if self.path != "/api/account":
+            if self.path == "/api/admin/documents":
+                if account is None:
+                    status, result = 401, {"error": "Devam etmek için oturum aç."}
+                elif account[2] != "admin":
+                    status, result = 403, {"error": "Belge yönetimi yalnızca yöneticilere açık."}
+                elif payload.get("action") == "list":
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        result = {"documents": list_documents(db)}
+                elif payload.get("action") == "upload":
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        db.execute("PRAGMA foreign_keys=ON")
+                        setup_documents(db)
+                        document_id = upload_document(
+                            db, payload.get("title", ""), payload.get("filename", ""),
+                            payload.get("content_base64", ""), account[0],
+                        )
+                    result = {"id": document_id, "pending_approval": True}
+                elif payload.get("action") == "approve":
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        version = approve_document(db, payload.get("id"), account[0])
+                    result = {"approved": True, "version": version}
+                elif payload.get("action") == "reject":
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        reject_document(db, payload.get("id"), account[0])
+                    result = {"rejected": True}
+                elif payload.get("action") == "preview":
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        setup_documents(db)
+                        row = db.execute(
+                            "SELECT d.title,d.filename,d.version,d.status,d.text,a.text "
+                            "FROM company_documents d LEFT JOIN company_documents a "
+                            "ON a.title=d.title COLLATE NOCASE AND a.status='active' "
+                            "WHERE d.id = ?",
+                            (payload.get("id"),),
+                        ).fetchone()
+                    if row is None:
+                        raise ValueError("Belge bulunamadı.")
+                    result = {"title": row[0], "filename": row[1], "version": row[2],
+                              "status": row[3], "text": row[4], "active_text": row[5]}
+                else:
+                    raise ValueError("Bilinmeyen belge yönetimi işlemi.")
+            elif self.path != "/api/account":
                 if account is None:
                     status, result = 401, {"error": "Devam etmek için oturum aç."}
                 elif self.path == "/api/refund":
@@ -364,6 +412,9 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--db", default="netle.sqlite3")
     args = parser.parse_args()
+    with closing(sqlite3.connect(args.db)) as db:
+        setup(db)
+        ensure_admin_from_env(db)
     with HTTPServer(("127.0.0.1", args.port), Handler) as server:
         server.db_path = args.db
         print(f"Netle: http://127.0.0.1:{server.server_port}", flush=True)
