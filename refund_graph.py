@@ -69,6 +69,7 @@ class RefundState(TypedDict, total=False):
     reason: str
     draft: str
     flow: str
+    defer_draft: bool
 
 
 def missing_fields(state):
@@ -167,12 +168,17 @@ def make_graph(db, saver):
         )
         return {"draft": customer_message(draft)}
 
+    def await_draft(state):
+        interrupt({"ready_for_draft": True})
+        return {}
+
     graph = StateGraph(RefundState)
     graph.add_node("confirm_damage", confirm_damage)
     graph.add_node("clarify_seal", clarify)
     graph.add_node("retrieve", retrieve)
     graph.add_node("clarify", clarify)
     graph.add_node("build_prompt", build_prompt)
+    graph.add_node("await_draft", await_draft)
     graph.add_node("generate", generate)
     def first_step(state):
         if state.get("flow") == "possible_damage":
@@ -188,7 +194,12 @@ def make_graph(db, saver):
     graph.add_conditional_edges("retrieve", lambda state: bool(missing_fields(state)),
                                 {True: "clarify", False: "build_prompt"})
     graph.add_edge("clarify", "build_prompt")
-    graph.add_edge("build_prompt", "generate")
+    graph.add_conditional_edges(
+        "build_prompt",
+        lambda state: bool(state.get("defer_draft")) and not delivery_date_unknown(state["facts"]),
+        {True: "await_draft", False: "generate"},
+    )
+    graph.add_edge("await_draft", "generate")
     graph.add_edge("generate", END)
     return graph.compile(checkpointer=saver)
 

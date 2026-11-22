@@ -24,6 +24,18 @@ Hesaplar, roller ve oturumlar SQLite'ta saklanır. Yerel pilotun kayıt ekranı 
 
 Kullanıcı adı unutulursa SQLite içindeki `employees` tablosundan görülebilir. `.env` ayarlıysa yönetici parolasını bu dosyada güncelleyip uygulamayı yeniden başlat. Yönetici, parolasını unutan çalışan için panelden geçici parola oluşturabilir.
 
+## Gmail iade kutusu
+
+Gmail hesabında `Netle İade` etiketini oluştur ve test mesajına uygula. Hesap sahibi, iki adımlı doğrulama açıkken oluşturduğu Google uygulama şifresini yerel `.env` dosyasına eklemelidir.
+
+```dotenv
+NETLE_GMAIL_ACCOUNT=hesap@gmail.com
+NETLE_GMAIL_APP_PASSWORD=
+NETLE_GMAIL_EMPLOYEE=netle_kullanici_adi
+```
+
+`NETLE_GMAIL_EMPLOYEE`, Gmail hesabına erişecek çalışanın Netle kullanıcı adıdır. Çalışan oturum açtığında veya **Gelen mailleri yenile** düğmesine bastığında Netle etiketteki son 15 mesajı salt okunur getirir. Filtreyi oluşturduktan önce gelen test mesajına etiketi elle uygulayabilirsin. Gmail alma ayarları, aşağıdaki SMTP gönderme ayarlarından ayrıdır.
+
 ## E-posta gönderimi
 
 Netle, **Gönder** düğmesine basıldığında alıcı, konu ve düzenlenmiş taslağı şirketin SMTP sunucusuna iletir. Proje geçerli bir posta hesabı veya gönderim yetkisi olan bir SMTP rölesi gerektirir. Yerel `.env` ayarları:

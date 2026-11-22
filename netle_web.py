@@ -15,6 +15,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from netle import CREATE_CALLS
+from gmail_inbox import list_refund_mail
 from netle_mail import send_reply
 from netle_auth import account_action, employee, ensure_admin_from_env, setup
 from company_documents import (approve as approve_document,
@@ -144,8 +145,8 @@ def reply(db_path, payload, employee_id=None):
     action = payload.get("action")
     if action == "start":
         request = payload.get("request", "").strip()
-        if not request or len(request) > 2000:
-            raise ValueError("İade isteğini 1–2000 karakter arasında yaz.")
+        if not request or len(request) > 12000:
+            raise ValueError("İade isteği 1–12000 karakter arasında olmalı.")
         flow, facts = intake(request)
         session_id = uuid4().hex
         command = {
@@ -157,8 +158,9 @@ def reply(db_path, payload, employee_id=None):
             "chat_model": "qwen2.5:1.5b",
             "embed_model": "embeddinggemma:latest",
             "preserve_reviewed_message": True,
+            "defer_draft": payload.get("defer_draft") is True,
         }
-    elif action in ("resume", "discuss", "revise"):
+    elif action in ("resume", "generate", "discuss", "revise"):
         session_id = payload.get("session_id", "")
         if not re.fullmatch(r"[0-9a-f]{32}", session_id):
             raise ValueError("Oturum kimliği geçersiz.")
@@ -184,11 +186,13 @@ def reply(db_path, payload, employee_id=None):
             if not state.get("scenario"):
                 raise ValueError("İade sohbeti bulunamadı.")
             return discuss(db, state, session_id, payload)
-        if action == "resume":
+        if action in ("resume", "generate"):
             state = graph.get_state(config)
             if state.next == ("generate",):
                 command = None
-            elif state.next in (("clarify",), ("clarify_seal",), ("confirm_damage",)):
+            elif action == "generate" and state.next == ("await_draft",):
+                command = Command(resume=True)
+            elif action == "resume" and state.next in (("clarify",), ("clarify_seal",), ("confirm_damage",)):
                 questions = state.tasks[0].interrupts[0].value
                 answers = dict(payload.get("answers", {}))
                 unknown_delivery = (
@@ -282,6 +286,8 @@ def present(db, result, session_id):
     response = {"session_id": session_id, "flow": FLOW_LABELS[result.get("flow", "standard")]}
     if result.get("__interrupt__"):
         questions = result["__interrupt__"][0].value
+        if questions.get("ready_for_draft") is True:
+            return {**response, "ready_for_draft": True}
         return {**response, "questions": {key: QUESTIONS.get(key, text) for key, text in questions.items()}}
     return {**response, "draft": result["draft"], "prompt": result["prompt"],
             "sources": [source_label(item) for item in result["sources"]],
@@ -396,7 +402,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_content(200, "text/html; charset=utf-8", PAGE.read_bytes())
 
     def do_POST(self):
-        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/templates", "/api/admin/documents"):
+        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/inbox", "/api/templates", "/api/admin/documents"):
             self.send_error(404)
             return
         port = self.server.server_port
@@ -465,6 +471,8 @@ class Handler(BaseHTTPRequestHandler):
                     status, result = 401, {"error": "Devam etmek için oturum aç."}
                 elif self.path == "/api/refund":
                     result = reply(self.server.db_path, payload, account[0])
+                elif self.path == "/api/inbox":
+                    result = list_refund_mail(account[1])
                 elif self.path == "/api/mail":
                     with closing(sqlite3.connect(self.server.db_path)) as db:
                         result = send_reply(db, account[0], payload)

@@ -142,7 +142,9 @@
   <div class="inbox-grid">
     <section aria-labelledby="inbox-title">
       <h2 id="inbox-title">İade talepleri</h2>
-      <p class="inbox-meta">Örnek posta kutusu</p>
+      <p id="inbox-source" class="inbox-meta">Örnek posta kutusu</p>
+      <button id="inbox-refresh" type="button">Gelen mailleri yenile</button>
+      <p id="inbox-load-status" role="status" class="inbox-meta"></p>
       <div id="inbox-list"></div>
     </section>
     <section aria-labelledby="inbox-conversation">
@@ -152,6 +154,7 @@
         <strong id="inbox-subject"></strong>
         <p id="inbox-sender" class="inbox-meta"></p>
         <p id="inbox-original" class="inbox-message"></p>
+        <p id="inbox-attachments" class="inbox-meta" hidden></p>
         <div id="inbox-thread" role="log" aria-label="Vaka sohbeti geçmişi"></div>
         <p id="inbox-status" role="status"></p>
         <button id="inbox-retry" type="button" hidden>Tekrar dene</button>
@@ -169,7 +172,8 @@
     </section>
     <section aria-labelledby="inbox-draft-title">
       <h2 id="inbox-draft-title">Yanıt taslağı</h2>
-      <p id="inbox-draft-empty" class="inbox-meta">Taslak hazır olduğunda burada düzenleyebilirsin.</p>
+      <p id="inbox-draft-empty" class="inbox-meta">Yanıt hazırlamak için bir iade e-postası seç.</p>
+      <button id="inbox-create-draft" type="button" disabled>Yanıt oluştur</button>
       <form id="inbox-draft-panel" hidden>
         <div class="field"><label for="inbox-recipient">Alıcı</label><input id="inbox-recipient" type="email" required></div>
         <div class="field"><label for="inbox-reply-subject">Konu</label><input id="inbox-reply-subject" maxlength="250" required></div>
@@ -625,7 +629,7 @@
         document.querySelector('#document-status').textContent = error.message;
       }
     } else {
-      await refreshTemplates();
+      await Promise.all([refreshTemplates(), refreshInbox()]);
     }
   }
 

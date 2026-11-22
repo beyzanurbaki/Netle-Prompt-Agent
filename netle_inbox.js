@@ -25,21 +25,24 @@ const sampleRefundMails = [
 const inbox = id => document.querySelector('#inbox-' + id);
 const refundCases = new Map();
 let selectedRefundMail = null;
+let inboxMails = sampleRefundMails;
+let inboxRefresh = null;
 
 function renderInbox() {
   const mail = selectedRefundMail;
   const active = mail && refundCases.get(mail.id);
-  inbox('list').replaceChildren(...sampleRefundMails.map(sample => {
+  inbox('list').replaceChildren(...inboxMails.map(sample => {
     const entry = refundCases.get(sample.id);
     const button = document.createElement('button');
     button.className = 'inbox-mail';
     button.type = 'button';
-    button.setAttribute('aria-pressed', String(sample === mail));
+    button.setAttribute('aria-pressed', String(sample.id === mail?.id));
     const subject = document.createElement('strong');
     subject.textContent = sample.subject;
     const state = document.createElement('small');
     state.textContent = entry?.sent ? 'Gönderildi' : entry?.busy ? 'İşleniyor' : entry?.error ? 'İşlem bekliyor'
-      : entry?.questions ? 'Bilgi bekliyor' : entry?.hasDraft ? 'Taslak hazır' : 'Yeni';
+      : entry?.questions ? 'Bilgi bekliyor' : entry?.hasDraft ? 'Taslak hazır'
+      : entry?.readyForDraft ? 'Yanıt bekliyor' : 'Yeni';
     button.append(subject, state);
     button.addEventListener('click', () => openRefundMail(sample));
     return button;
@@ -48,6 +51,13 @@ function renderInbox() {
   inbox('case').hidden = !active;
   inbox('draft-empty').hidden = Boolean(active?.hasDraft);
   inbox('draft-panel').hidden = !active?.hasDraft;
+  inbox('create-draft').hidden = Boolean(active?.hasDraft);
+  inbox('create-draft').disabled = !active?.readyForDraft || active.busy;
+  inbox('draft-empty').textContent = !active ? 'Yanıt hazırlamak için bir iade e-postası seç.'
+    : active.error ? 'Sohbet panelindeki işlem durumunu kontrol et.'
+    : active.busy ? 'Netle çalışıyor…'
+    : active.questions ? 'Önce sohbet panelindeki eksik bilgileri yanıtla.'
+    : 'Yanıt oluştur’a basarak düzenlenebilir taslağı hazırla.';
   if (!active) {
     for (const field of ['recipient', 'reply-subject', 'draft', 'message']) inbox(field).value = '';
     for (const field of ['thread', 'questions', 'sources']) inbox(field).replaceChildren();
@@ -57,6 +67,8 @@ function renderInbox() {
   inbox('subject').textContent = mail.subject;
   inbox('sender').textContent = mail.sender;
   inbox('original').textContent = mail.body;
+  inbox('attachments').hidden = !mail.attachments?.length;
+  inbox('attachments').textContent = mail.attachments?.join(', ') || '';
   const thread = inbox('thread');
   thread.replaceChildren(...active.turns.map(({employee, text}) => {
     const turn = document.createElement('p');
@@ -106,9 +118,13 @@ function renderInbox() {
   for (const field of ['recipient', 'reply-subject', 'draft']) {
     inbox(field).readOnly = active.busy || Boolean(active.sent);
   }
-  inbox('send').disabled = active.busy || Boolean(active.sent);
+  if (mail.thread) inbox('reply-subject').readOnly = true;
+  const missingThread = mail.id.startsWith('gmail-') && !mail.thread;
+  inbox('send').disabled = active.busy || Boolean(active.sent) || missingThread;
   inbox('revise').disabled = active.busy || Boolean(active.sent);
-  inbox('send-status').textContent = active.sendStatus || '';
+  inbox('send-status').textContent = active.sendStatus || (missingThread
+    ? 'Özgün e-postada zincir kimliği bulunamadığı için yanıt gönderilemiyor.'
+    : mail.thread ? 'Yanıt, özgün e-posta zincirine bağlanacak.' : '');
 }
 
 function sizeInboxDraft() {
@@ -125,10 +141,12 @@ function openRefundMail(mail) {
   }
   const entry = {
     busy: false, turns: [], sources: [], answers: {}, message: '', draft: '',
-    subject: 'Re: ' + mail.subject, recipient: mail.recipient
+    subject: /^re:/i.test(mail.subject) ? mail.subject : 'Re: ' + mail.subject,
+    recipient: mail.recipient
   };
   refundCases.set(mail.id, entry);
-  runInboxRequest(mail, {action: 'start', request: mail.body});
+  const request = mail.id.startsWith('gmail-') ? (mail.subject + '\n\n' + mail.body).slice(0, 12000) : mail.body;
+  runInboxRequest(mail, {action: 'start', request, defer_draft: true});
 }
 
 async function runInboxRequest(mail, payload, employeeTurn) {
@@ -148,9 +166,11 @@ async function runInboxRequest(mail, payload, employeeTurn) {
     } else {
       entry.sessionId = data.session_id;
       entry.questions = data.questions;
+      entry.readyForDraft = Boolean(data.ready_for_draft);
       entry.answers = {};
       entry.turns.push({text: data.questions
         ? Object.values(data.questions).join('\n')
+        : data.ready_for_draft ? 'Sağ panelden yanıt taslağını oluşturabilirsin.'
         : 'Yanıt taslağı sağ panelde hazır.'});
     }
     if (typeof data.draft === 'string') {
@@ -174,8 +194,49 @@ async function runInboxRequest(mail, payload, employeeTurn) {
 function resetInbox() {
   refundCases.clear();
   selectedRefundMail = null;
+  inboxMails = sampleRefundMails;
+  inboxRefresh = null;
+  inbox('source').textContent = 'Örnek posta kutusu';
+  inbox('load-status').textContent = '';
+  inbox('refresh').disabled = false;
   renderInbox();
 }
+
+async function refreshInbox() {
+  if (inboxRefresh) return;
+  const refresh = {};
+  inboxRefresh = refresh;
+  inbox('refresh').disabled = true;
+  inbox('load-status').textContent = 'Gelen mailler kontrol ediliyor…';
+  try {
+    const data = await post('/api/inbox', {});
+    if (inboxRefresh !== refresh) return;
+    if (!data.enabled) {
+      inbox('load-status').textContent = 'Bu çalışan için Gmail bağlantısı yapılandırılmadı.';
+      return;
+    }
+    inboxMails = data.mails;
+    selectedRefundMail = inboxMails.find(mail => mail.id === selectedRefundMail?.id) ?? null;
+    inbox('source').textContent = 'Gmail · Netle İade';
+    inbox('load-status').textContent = inboxMails.length ? '' : 'Bu etikette henüz mail yok.';
+    renderInbox();
+  } catch (error) {
+    if (inboxRefresh === refresh) inbox('load-status').textContent = error.message;
+  } finally {
+    if (inboxRefresh === refresh) {
+      inboxRefresh = null;
+      inbox('refresh').disabled = false;
+    }
+  }
+}
+
+inbox('refresh').addEventListener('click', refreshInbox);
+
+inbox('create-draft').addEventListener('click', () => {
+  const mail = selectedRefundMail;
+  const entry = mail && refundCases.get(mail.id);
+  if (entry?.readyForDraft) runInboxRequest(mail, {action: 'generate', session_id: entry.sessionId});
+});
 
 inbox('retry').addEventListener('click', () => {
   const retry = refundCases.get(selectedRefundMail.id).retry;
@@ -232,13 +293,14 @@ inbox('draft-panel').addEventListener('submit', async event => {
   event.preventDefault();
   const mail = selectedRefundMail;
   const entry = mail && refundCases.get(mail.id);
-  if (!entry?.hasDraft || entry.busy || entry.sent) return;
+  if (!entry?.hasDraft || entry.busy || entry.sent || (mail.id.startsWith('gmail-') && !mail.thread)) return;
   entry.busy = true;
   entry.sendStatus = 'E-posta gönderiliyor…';
   renderInbox();
   try {
     const data = await post('/api/mail', {
-      session_id: entry.sessionId, recipient: entry.recipient, subject: entry.subject, body: entry.draft
+      session_id: entry.sessionId, recipient: entry.recipient, subject: entry.subject,
+      body: entry.draft, thread: mail.thread
     });
     entry.sent = data.sent;
     entry.sendStatus = 'E-posta gönderildi.';

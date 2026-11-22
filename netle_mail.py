@@ -7,7 +7,25 @@ import ssl
 from email.headerregistry import Address
 from email.errors import HeaderParseError
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from pathlib import Path
+
+
+def message_ids(header):
+    return re.findall(r"<[^<>\s@]+@[^<>\s@]+>", str(header or ""))
+
+
+def reply_headers(thread):
+    parent = thread.get("message_id")
+    references = thread.get("references", [])
+    ids = [parent, *references] if isinstance(references, list) else []
+    if not ids or len(ids) > 33 or any(
+        not isinstance(value, str) or len(value) > 250 or message_ids(value) != [value]
+        for value in ids
+    ):
+        raise ValueError("Özgün e-postanın zincir bilgisi geçersiz. Gelen mailleri yenile.")
+    chain = [value for value in dict.fromkeys(references) if value != parent]
+    return {"In-Reply-To": parent, "References": " ".join([*chain, parent])}
 
 
 def smtp_settings():
@@ -64,6 +82,14 @@ def send_reply(db, employee_id, payload):
     message["From"] = mailbox(settings["FROM"])
     message["To"] = recipient
     message["Subject"] = subject
+    message["Date"] = formatdate(localtime=True)
+    message["Message-ID"] = make_msgid(domain=message["From"].addresses[0].domain)
+    thread = payload.get("thread")
+    if thread is not None:
+        if not isinstance(thread, dict):
+            raise ValueError("Geçersiz e-posta zinciri.")
+        for key, value in reply_headers(thread).items():
+            message[key] = value
     message.set_content(body)
 
     context = ssl.create_default_context()
