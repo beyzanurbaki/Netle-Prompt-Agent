@@ -40,9 +40,19 @@ function renderInbox() {
     const subject = document.createElement('strong');
     subject.textContent = sample.subject;
     const state = document.createElement('small');
-    state.textContent = entry?.sent ? 'Gönderildi' : entry?.busy ? 'İşleniyor' : entry?.error ? 'İşlem bekliyor'
+    const sent = entry?.sent || sample.delivery_state === 'sent';
+    state.textContent = sent ? 'Gönderildi'
+      : sample.delivery_state === 'uncertain' ? 'Gönderim belirsiz'
+      : entry?.busy ? 'İşleniyor' : entry?.error ? 'İşlem bekliyor'
       : entry?.questions ? 'Bilgi bekliyor' : entry?.hasDraft ? 'Taslak hazır'
       : entry?.readyForDraft ? 'Yanıt bekliyor' : 'Yeni';
+    if (sent) {
+      const check = document.createElement('span');
+      check.setAttribute('aria-hidden', 'true');
+      check.textContent = '✓ ';
+      state.className = 'inbox-mail-sent';
+      state.prepend(check);
+    }
     button.append(subject, state);
     button.addEventListener('click', () => openRefundMail(sample));
     return button;
@@ -54,6 +64,8 @@ function renderInbox() {
   inbox('create-draft').hidden = Boolean(active?.hasDraft);
   inbox('create-draft').disabled = !active?.readyForDraft || active.busy;
   inbox('draft-empty').textContent = !active ? 'Yanıt hazırlamak için bir iade e-postası seç.'
+    : active.sent ? 'Bu e-postaya yanıt gönderildi.'
+    : mail.delivery_state === 'uncertain' ? 'Gönderim sonucu belirsiz. Posta kutusunu kontrol et.'
     : active.error ? 'Sohbet panelindeki işlem durumunu kontrol et.'
     : active.busy ? 'Netle çalışıyor…'
     : active.questions ? 'Önce sohbet panelindeki eksik bilgileri yanıtla.'
@@ -120,7 +132,7 @@ function renderInbox() {
   }
   if (mail.thread) inbox('reply-subject').readOnly = true;
   const missingThread = mail.id.startsWith('gmail-') && !mail.thread;
-  inbox('send').disabled = active.busy || Boolean(active.sent) || missingThread;
+  inbox('send').disabled = active.busy || Boolean(active.sent) || missingThread || mail.delivery_state === 'uncertain';
   inbox('revise').disabled = active.busy || Boolean(active.sent);
   inbox('send-status').textContent = active.sendStatus || (missingThread
     ? 'Özgün e-postada zincir kimliği bulunamadığı için yanıt gönderilemiyor.'
@@ -145,6 +157,11 @@ function openRefundMail(mail) {
     recipient: mail.recipient
   };
   refundCases.set(mail.id, entry);
+  if (mail.delivery_state) {
+    entry.sent = mail.delivery_state === 'sent';
+    renderInbox();
+    return;
+  }
   const request = mail.id.startsWith('gmail-') ? (mail.subject + '\n\n' + mail.body).slice(0, 12000) : mail.body;
   runInboxRequest(mail, {action: 'start', request, defer_draft: true});
 }
@@ -216,6 +233,13 @@ async function refreshInbox() {
       return;
     }
     inboxMails = data.mails;
+    for (const mail of inboxMails) {
+      const entry = refundCases.get(mail.id);
+      if (entry && mail.delivery_state === 'sent') {
+        entry.sent = true;
+        entry.sendStatus = 'Bu e-postaya yanıt gönderildi.';
+      }
+    }
     selectedRefundMail = inboxMails.find(mail => mail.id === selectedRefundMail?.id) ?? null;
     inbox('source').textContent = 'Gmail · Netle İade';
     inbox('load-status').textContent = inboxMails.length ? '' : 'Bu etikette henüz mail yok.';
@@ -293,7 +317,8 @@ inbox('draft-panel').addEventListener('submit', async event => {
   event.preventDefault();
   const mail = selectedRefundMail;
   const entry = mail && refundCases.get(mail.id);
-  if (!entry?.hasDraft || entry.busy || entry.sent || (mail.id.startsWith('gmail-') && !mail.thread)) return;
+  if (!entry?.hasDraft || entry.busy || entry.sent || mail.delivery_state === 'uncertain'
+      || (mail.id.startsWith('gmail-') && !mail.thread)) return;
   entry.busy = true;
   entry.sendStatus = 'E-posta gönderiliyor…';
   renderInbox();

@@ -51,6 +51,24 @@ def mailbox(value):
         raise ValueError("Geçerli, tek bir e-posta adresi gir.") from None
 
 
+def setup_sent_mail(db):
+    db.execute("CREATE TABLE IF NOT EXISTS sent_replies (refund_id TEXT PRIMARY KEY, sent INTEGER NOT NULL)")
+    db.execute("""CREATE TABLE IF NOT EXISTS reply_messages (
+        employee_id INTEGER NOT NULL,
+        message_id TEXT NOT NULL,
+        refund_id TEXT NOT NULL UNIQUE REFERENCES sent_replies(refund_id) ON DELETE CASCADE,
+        PRIMARY KEY (employee_id, message_id)
+    )""")
+
+
+def reply_status(db, employee_id, message_id):
+    row = db.execute(
+        """SELECT s.sent FROM reply_messages m JOIN sent_replies s USING (refund_id)
+           WHERE m.employee_id = ? AND m.message_id = ?""", (employee_id, message_id),
+    ).fetchone()
+    return ("sent" if row[0] else "uncertain") if row else None
+
+
 def send_reply(db, employee_id, payload):
     session_id = payload.get("session_id", "")
     if not re.fullmatch(r"[0-9a-f]{32}", session_id) or not db.execute(
@@ -66,7 +84,7 @@ def send_reply(db, employee_id, payload):
     if not subject or len(subject) > 250 or len(subject.splitlines()) != 1 or not 0 < len(body) <= 12000:
         raise ValueError("Tek satırlık bir konu ve 1–12000 karakterlik bir mesaj gir.")
 
-    db.execute("CREATE TABLE IF NOT EXISTS sent_replies (refund_id TEXT PRIMARY KEY, sent INTEGER NOT NULL)")
+    setup_sent_mail(db)
     previous = db.execute("SELECT sent FROM sent_replies WHERE refund_id = ?", (session_id,)).fetchone()
     if previous:
         if previous[0]:
@@ -90,6 +108,12 @@ def send_reply(db, employee_id, payload):
             raise ValueError("Geçersiz e-posta zinciri.")
         for key, value in reply_headers(thread).items():
             message[key] = value
+    parent = str(message["In-Reply-To"]) if thread is not None else None
+    status = reply_status(db, employee_id, parent) if parent else None
+    if status == "sent":
+        return {"sent": True}
+    if status == "uncertain":
+        raise ValueError("Önceki gönderimin sonucu belirsiz. Yeniden göndermeden önce posta sunucusunu kontrol et.")
     message.set_content(body)
 
     context = ssl.create_default_context()
@@ -105,10 +129,13 @@ def send_reply(db, employee_id, payload):
             server.login(settings["USER"], settings["PASSWORD"])
         with db:
             db.execute("INSERT INTO sent_replies VALUES (?, 0)", (session_id,))
+            if parent:
+                db.execute("INSERT INTO reply_messages VALUES (?, ?, ?)", (employee_id, parent, session_id))
         try:
             server.send_message(message)
         except (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused):
             with db:
+                db.execute("DELETE FROM reply_messages WHERE refund_id = ?", (session_id,))
                 db.execute("DELETE FROM sent_replies WHERE refund_id = ?", (session_id,))
             raise ValueError("Posta sunucusu gönderimi reddetti. Alıcıyı ve posta ayarlarını kontrol et.") from None
         except OSError:

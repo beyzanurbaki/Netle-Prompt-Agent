@@ -16,7 +16,7 @@ from langgraph.types import Command
 
 from netle import CREATE_CALLS
 from gmail_inbox import list_refund_mail
-from netle_mail import send_reply
+from netle_mail import reply_status, send_reply, setup_sent_mail
 from netle_auth import account_action, employee, ensure_admin_from_env, setup
 from company_documents import (approve as approve_document,
                                reject as reject_document,
@@ -473,6 +473,11 @@ class Handler(BaseHTTPRequestHandler):
                     result = reply(self.server.db_path, payload, account[0])
                 elif self.path == "/api/inbox":
                     result = list_refund_mail(account[1])
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        setup_sent_mail(db)
+                        for mail in result.get("mails", []):
+                            if mail["thread"] and not mail.get("delivery_state"):
+                                mail["delivery_state"] = reply_status(db, account[0], mail["thread"]["message_id"])
                 elif self.path == "/api/mail":
                     with closing(sqlite3.connect(self.server.db_path)) as db:
                         result = send_reply(db, account[0], payload)

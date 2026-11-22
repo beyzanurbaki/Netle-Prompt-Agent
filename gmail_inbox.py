@@ -81,6 +81,37 @@ def parse_mail(raw, identifier):
             ]}
 
 
+def mark_sent_replies(inbox, items, thread_ids):
+    if not thread_ids:
+        return
+    try:
+        status, folders = inbox.list()
+        if status != "OK":
+            return
+        sent = next((folder.split(b'"', 2)[-1].strip() for folder in folders
+                     if isinstance(folder, bytes) and b"\\Sent" in folder.split(b")", 1)[0].lstrip(b"(").split()), None)
+        if sent is None or inbox.select(sent.decode("ascii"), readonly=True)[0] != "OK":
+            return
+        criteria = ["X-GM-THRID " + thread_id for thread_id in sorted(thread_ids)]
+        status, uids = inbox.uid("SEARCH", None, "OR " * (len(criteria) - 1) + " ".join(criteria))
+        if status != "OK" or not uids[0]:
+            return
+        status, parts = inbox.uid("FETCH", b",".join(uids[0].split()[-100:]),
+                                  "(BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO)])")
+    except (imaplib.IMAP4.error, UnicodeError):
+        return
+    if status != "OK":
+        return
+    answered = {
+        parent
+        for part in parts if isinstance(part, tuple)
+        for parent in message_ids(BytesParser(policy=policy.default).parsebytes(part[1])["In-Reply-To"])
+    }
+    for mail in items:
+        if mail["thread"] and mail["thread"]["message_id"] in answered:
+            mail["delivery_state"] = "sent"
+
+
 def list_refund_mail(username):
     address, app_password, employee = gmail_settings()
     if not employee or username != employee.lower().strip():
@@ -106,13 +137,19 @@ def list_refund_mail(username):
             if status != "OK":
                 raise ValueError("Gmail etiketi okunamadı.")
             items = []
+            thread_ids = set()
             for uid in reversed(numbers[0].split()[-15:]):
-                status, parts = inbox.uid("FETCH", uid, "(BODY.PEEK[]<0.262144>)")
+                status, parts = inbox.uid("FETCH", uid, "(X-GM-THRID BODY.PEEK[]<0.262144>)")
                 if status != "OK":
                     continue
-                raw = next((part[1] for part in parts if isinstance(part, tuple)), None)
-                if raw:
-                    items.append(parse_mail(raw, f"gmail-{validity[0].decode()}-{uid.decode()}"))
+                message_part = next((part for part in parts if isinstance(part, tuple)), None)
+                if message_part:
+                    items.append(parse_mail(message_part[1], f"gmail-{validity[0].decode()}-{uid.decode()}"))
+                    metadata = b" ".join(part[0] if isinstance(part, tuple) else part for part in parts if part)
+                    thread = re.search(rb"\bX-GM-THRID (\d+)\b", metadata)
+                    if thread:
+                        thread_ids.add(thread[1].decode("ascii"))
+            mark_sent_replies(inbox, items, thread_ids)
             return {"enabled": True, "mails": items}
     except (OSError, imaplib.IMAP4.error):
         raise ValueError("Gmail bağlantısı kurulamadı. Hesabı, uygulama şifresini ve Netle İade etiketini kontrol et.") from None
