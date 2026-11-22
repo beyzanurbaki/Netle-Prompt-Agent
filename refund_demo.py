@@ -19,12 +19,17 @@ def chat(db, run_id, model, operation, system, user, *, schema=None):
         ],
         "stream": False,
         "think": False,
-        "options": {"temperature": 0, "num_predict": 900 if schema else 220},
+        "options": {"temperature": 0},
     }
     if schema is not None:
         payload["format"] = schema
-    return call_ollama(db, run_id, "chat", payload, operation=operation,
-                       timeout=240)["message"]["content"].strip()
+    for limit in (640 if schema is None else 900, 1400):
+        payload["options"]["num_predict"] = limit
+        response = call_ollama(db, run_id, "chat", payload, operation=operation, timeout=240)
+        if response.get("done_reason") != "length":
+            return response["message"]["content"].strip()
+        payload["messages"][0]["content"] = system + " Yanıtı kısa tut ve son cümleyi tamamla."
+    raise ValueError("Model yanıtı tamamlayamadı. Yarım taslak gösterilmedi. Tekrar dene.")
 
 
 def improve_prompt(db, run_id, model, request, sources, source_ids):

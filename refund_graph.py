@@ -45,7 +45,7 @@ def customer_message(draft):
 
 
 QUESTIONS = {
-    "teslimattan_sonra_gun": "Teslimattan bu yana kaç takvim günü geçti?",
+    "teslimattan_sonra_gun": "Müşteri ürünü hangi tarihte teslim aldı? (Gün/ay/yıl)",
     "kullanildi": "Ürün kullanıldı mı?",
     "aksesuarlar_tam": "Tüm aksesuarlar eksiksiz mi?",
     "hijyen_muhru_acik": "Ürünün hijyen mührü açıldı mı?",
@@ -117,6 +117,9 @@ def special_prompt(state):
 
 def build_prompt(state):
     facts = state["facts"]
+    if delivery_date_unknown(facts):
+        reason = "İade talebini değerlendirmek için teslim tarihi gerekiyor."
+        return {"reason": reason, "prompt": "Müşteriden yalnızca ürünün teslim tarihini iste."}
     evidence = "\n\n".join(
         f"[{item['source']} · {item['title']} · sürüm {item['version']}]\n{item['text']}"
         for item in state["sources"]
@@ -139,6 +142,10 @@ def build_prompt(state):
     return {"prompt": prompt, "reason": "Yalnızca yönetici tarafından etkinleştirilmiş şirket belgeleri kaynak olarak kullanıldı."}
 
 
+def delivery_date_unknown(facts):
+    return "teslimattan_sonra_gun" in facts and facts["teslimattan_sonra_gun"] is None
+
+
 def make_graph(db, saver):
     setup_documents(db)
 
@@ -148,6 +155,11 @@ def make_graph(db, saver):
         return {"sources": [asdict(chunk) for chunk in chunks]}
 
     def generate(state):
+        if delivery_date_unknown(state["facts"]):
+            return {"draft": (
+                "Merhaba,\n\nİade talebinizi değerlendirebilmemiz için ürünü hangi tarihte "
+                "teslim aldığınızı gün, ay ve yıl olarak paylaşabilir misiniz?\n\nTeşekkür ederiz."
+            ), "sources": []}
         draft = chat(
             db, state["session_id"], state["chat_model"], "generate_draft",
             CUSTOMER_MESSAGE_RULE + " Yanıtı yalnızca verilen onaylı belge kanıtlarına dayandır.",

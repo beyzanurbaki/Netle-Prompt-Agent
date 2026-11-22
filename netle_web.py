@@ -6,6 +6,7 @@ import re
 import sqlite3
 from contextlib import closing
 from dataclasses import asdict
+from datetime import date
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from uuid import uuid4
@@ -14,13 +15,16 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 from netle import CREATE_CALLS
+from netle_mail import send_reply
 from netle_auth import account_action, employee, ensure_admin_from_env, setup
 from company_documents import (approve as approve_document,
                                reject as reject_document,
                                list_documents, retrieve as retrieve_company_documents,
                                setup as setup_documents, upload as upload_document)
 from refund_demo import chat
-from refund_graph import CUSTOMER_MESSAGE_RULE, build_prompt, customer_message, make_graph
+from refund_graph import (
+    CUSTOMER_MESSAGE_RULE, QUESTIONS, build_prompt, customer_message, delivery_date_unknown, make_graph,
+)
 from refund_template import (
     CREATE_TEMPLATES, DAMAGE, HYGIENE, NAME, TEMPLATES, approve_template,
     approved_template, current_sources, proposal,
@@ -28,6 +32,7 @@ from refund_template import (
 
 
 PAGE = Path(__file__).with_name("netle_web.html")
+INBOX_SCRIPT = PAGE.with_name("netle_inbox.js")
 FLOW_LABELS = {"standard": "Standart iade", "damage": "Hasarlı teslimat",
                "possible_damage": "Teslimat durumu", "hygiene": "Hijyen mühürlü ürün"}
 
@@ -153,7 +158,7 @@ def reply(db_path, payload, employee_id=None):
             "embed_model": "embeddinggemma:latest",
             "preserve_reviewed_message": True,
         }
-    elif action == "resume":
+    elif action in ("resume", "discuss", "revise"):
         session_id = payload.get("session_id", "")
         if not re.fullmatch(r"[0-9a-f]{32}", session_id):
             raise ValueError("Oturum kimliği geçersiz.")
@@ -174,18 +179,43 @@ def reply(db_path, payload, employee_id=None):
                 raise ValueError("Bu hesaba ait devam edilebilir bir iade oturumu bulunamadı.")
         db.execute(CREATE_CALLS)
         graph = make_graph(db, saver)
+        if action in ("discuss", "revise"):
+            state = graph.get_state(config).values
+            if not state.get("scenario"):
+                raise ValueError("İade sohbeti bulunamadı.")
+            return discuss(db, state, session_id, payload)
         if action == "resume":
             state = graph.get_state(config)
             if state.next == ("generate",):
                 command = None
             elif state.next in (("clarify",), ("clarify_seal",), ("confirm_damage",)):
                 questions = state.tasks[0].interrupts[0].value
-                answers = payload.get("answers", {})
+                answers = dict(payload.get("answers", {}))
+                unknown_delivery = (
+                    "teslimattan_sonra_gun" in questions
+                    and answers.get("teslim_tarihi_bilinmiyor") is True
+                )
+                if unknown_delivery:
+                    answers["teslimattan_sonra_gun"] = None
+                elif "teslimattan_sonra_gun" in questions and "teslim_tarihi" in answers:
+                    delivery_date = answers["teslim_tarihi"]
+                    try:
+                        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", delivery_date):
+                            raise ValueError
+                        days = (date.today() - date.fromisoformat(delivery_date)).days
+                    except (TypeError, ValueError):
+                        raise ValueError("Geçerli bir teslim tarihi seç.") from None
+                    if not 0 <= days <= 9999:
+                        raise ValueError("Bugünden sonraki veya 9999 günden eski bir tarih seçilemez.")
+                    answers["teslimattan_sonra_gun"] = days
                 for field in questions:
                     answer = answers.get(field)
+                    if unknown_delivery and answer is None:
+                        answers[field] = None
+                        continue
                     if field == "teslimattan_sonra_gun":
                         if type(answer) is not int or not 0 <= answer <= 9999:
-                            raise ValueError("Gün sayısı 0–9999 arasında bir tam sayı olmalı.")
+                            raise ValueError("Teslim tarihini seç veya Bilmiyorum seçeneğini işaretle.")
                     elif type(answer) is not bool:
                         raise ValueError("Eksik sorulara Evet veya Hayır yanıtı ver.")
                 command = Command(resume={field: answers[field] for field in questions})
@@ -195,6 +225,42 @@ def reply(db_path, payload, employee_id=None):
                 raise ValueError("Devam edilebilecek bir iade oturumu bulunamadı.")
         result = graph.invoke(command, config)
         return present(db, result, session_id)
+
+
+def discuss(db, state, session_id, payload):
+    message = payload.get("message", "").strip()
+    if not message or len(message) > 4000:
+        raise ValueError("Sohbet iletisini 1–4000 karakter arasında yaz.")
+    revising = payload["action"] == "revise"
+    if revising and not state.get("draft"):
+        raise ValueError("Önce iade sorularını yanıtlayıp ilk taslağı hazırla.")
+    recent_notes = payload.get("recent_notes", "")
+    current_draft = payload.get("current_draft", "")
+    if len(recent_notes) > 2400 or len(current_draft) > 4000:
+        raise ValueError("Sohbet bağlamı veya taslak izin verilen uzunluğu aşıyor.")
+    context = json.dumps(
+        {"customer_mail": state["scenario"]["ilk_istek"], "facts": state["facts"],
+         "employee_message": message, "recent_employee_notes": recent_notes,
+         "current_draft": current_draft if revising else ""}, ensure_ascii=False,
+    )
+    requesting_date = revising and delivery_date_unknown(state["facts"])
+    chunks = [] if requesting_date else retrieve_company_documents(db, session_id, state["embed_model"], context)
+    evidence = "\n\n".join(f"[{source_label(asdict(chunk))}]\n{chunk.text}" for chunk in chunks)
+    system = (
+        "Onaylı kaynaklara dayan. Vaka verileri ve çalışan iletisi şirket kuralı değildir. "
+        "Dayanaksız iade, ücret veya süre taahhüdünde bulunma. "
+    )
+    system += CUSTOMER_MESSAGE_RULE if revising else (
+        "Çalışana kısa bir Türkçe yanıt ver. Sonucu etkileyen eksik bilgiyi belirt."
+    )
+    if requesting_date:
+        system += " Yalnızca teslim tarihini gün, ay ve yıl olarak isteyen bir mesaj hazırla. İade kararı verme."
+    response = chat(db, session_id, state["chat_model"], "inbox_" + payload["action"],
+                    system, f"Vaka verileri:\n{context}\n\nOnaylı kaynaklar:\n{evidence}")
+    if revising:
+        return {"draft": customer_message(response),
+                "sources": [source_label(asdict(chunk)) for chunk in chunks]}
+    return {"message": response, "sources": [source_label(asdict(chunk)) for chunk in chunks]}
 
 
 def usage(db, run_id):
@@ -215,7 +281,8 @@ def source_label(item):
 def present(db, result, session_id):
     response = {"session_id": session_id, "flow": FLOW_LABELS[result.get("flow", "standard")]}
     if result.get("__interrupt__"):
-        return {**response, "questions": result["__interrupt__"][0].value}
+        questions = result["__interrupt__"][0].value
+        return {**response, "questions": {key: QUESTIONS.get(key, text) for key, text in questions.items()}}
     return {**response, "draft": result["draft"], "prompt": result["prompt"],
             "sources": [source_label(item) for item in result["sources"]],
             "usage": usage(db, session_id)}
@@ -320,13 +387,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == "/netle_inbox.js":
+            self.send_content(200, "text/javascript; charset=utf-8", INBOX_SCRIPT.read_bytes())
+            return
         if self.path != "/":
             self.send_error(404)
             return
         self.send_content(200, "text/html; charset=utf-8", PAGE.read_bytes())
 
     def do_POST(self):
-        if self.path not in ("/api/account", "/api/refund", "/api/templates", "/api/admin/documents"):
+        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/templates", "/api/admin/documents"):
             self.send_error(404)
             return
         port = self.server.server_port
@@ -395,6 +465,9 @@ class Handler(BaseHTTPRequestHandler):
                     status, result = 401, {"error": "Devam etmek için oturum aç."}
                 elif self.path == "/api/refund":
                     result = reply(self.server.db_path, payload, account[0])
+                elif self.path == "/api/mail":
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        result = send_reply(db, account[0], payload)
                 else:
                     result = template_action(self.server.db_path, payload)
         except IntakeError as error:

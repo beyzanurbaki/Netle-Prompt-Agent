@@ -24,6 +24,21 @@ Hesaplar, roller ve oturumlar SQLite'ta saklanır. Yerel pilotun kayıt ekranı 
 
 Kullanıcı adı unutulursa SQLite içindeki `employees` tablosundan görülebilir. `.env` ayarlıysa yönetici parolasını bu dosyada güncelleyip uygulamayı yeniden başlat. Yönetici, parolasını unutan çalışan için panelden geçici parola oluşturabilir.
 
+## E-posta gönderimi
+
+Netle, **Gönder** düğmesine basıldığında alıcı, konu ve düzenlenmiş taslağı şirketin SMTP sunucusuna iletir. Proje geçerli bir posta hesabı veya gönderim yetkisi olan bir SMTP rölesi gerektirir. Yerel `.env` ayarları:
+
+```dotenv
+NETLE_SMTP_HOST=smtp.sirketiniz.example
+NETLE_SMTP_PORT=587
+NETLE_SMTP_TLS=starttls
+NETLE_SMTP_FROM=destek@sirketiniz.example
+NETLE_SMTP_USER=destek@sirketiniz.example
+NETLE_SMTP_PASSWORD=
+```
+
+Sunucu örtük TLS kullanıyorsa `NETLE_SMTP_TLS=ssl` ve sağlayıcının belirttiği portu (genellikle 465) kullan. Kimlik doğrulama gerektirmeyen yetkili bir rölede kullanıcı adı ve parola boş kalabilir. Örnek maillerin `example.test` adresleri teslimat için kullanılamaz. Gönderimi denerken **Alıcı** alanına kontrol ettiğin gerçek bir adres gir.
+
 ## Demo
 
 | İstek örneği | Beklenen davranış |

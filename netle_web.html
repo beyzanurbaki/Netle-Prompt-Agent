@@ -22,6 +22,8 @@
     header p { margin: 10px 0 0; color: #425d53; }
     section, form { background: #fff; border: 1px solid #d8e1d6; border-radius: 18px; padding: clamp(16px, 4vw, 28px); margin: 0 0 18px; }
     label { display: block; font-weight: 650; margin-bottom: 8px; }
+    .delivery-unknown { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-weight: 500; }
+    .delivery-unknown input { width: auto; margin: 0; }
     textarea, input, select { width: 100%; padding: 10px 12px; border: 1px solid #91a59a; border-radius: 9px; color: inherit; background: #fbfcfa; font: inherit; }
     textarea { resize: vertical; }
     button { border: 0; border-radius: 9px; padding: 10px 16px; background: #204f3e; color: #fff; font: inherit; font-weight: 650; cursor: pointer; margin-top: 12px; }
@@ -51,6 +53,26 @@
     body.password-only main { max-width: 520px; padding-top: clamp(48px, 12vh, 120px); }
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid #d8e1d6; white-space: nowrap; }
+    body.inbox-active main { max-width: 1580px; padding-top: 24px; }
+    .inbox-grid { display: grid; grid-template-columns: minmax(215px, 1fr) minmax(0, 2fr) minmax(280px, 1.35fr); gap: 14px; align-items: stretch; }
+    .inbox-grid > section { margin: 0; min-width: 0; padding: 18px; overflow-wrap: anywhere; }
+    .inbox-grid h2 { font-size: 1.08rem; margin-bottom: 14px; }
+    .inbox-grid form { padding: 0; margin: 12px 0 0; border: 0; }
+    .inbox-grid small, .inbox-meta { color: #425d53; }
+    .inbox-meta { margin: 0 0 12px; }
+    .inbox-mail { width: 100%; text-align: left; background: #f5f7f3; color: #172d27; padding: 12px; margin: 0 0 8px; border: 1px solid #d8e1d6; }
+    .inbox-mail[aria-pressed="true"] { background: #e1eee4; border-color: #4e8c69; }
+    .inbox-mail strong, .inbox-mail small { display: block; }
+    .inbox-message, .inbox-turn { margin: 12px 0; padding: 12px; background: #f3f5ef; border-radius: 9px; white-space: pre-wrap; }
+    .inbox-turn.employee { background: #e1eee4; margin-left: 22px; }
+    #inbox-thread { max-height: 300px; overflow: auto; }
+    #inbox-status { color: #425d53; }
+    #inbox-status.error { color: #980f21; }
+    #inbox-draft { min-height: 218px; field-sizing: content; }
+    #inbox-send-status { margin-bottom: 0; }
+    #legacy-workspace { margin-top: 20px; }
+    @media (max-width: 960px) { .inbox-grid { grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr); } .inbox-grid > :last-child { grid-column: 2; } }
+    @media (max-width: 640px) { .inbox-grid { grid-template-columns: minmax(0, 1fr); } .inbox-grid > :last-child { grid-column: auto; } }
   </style>
 </head>
 <body>
@@ -117,6 +139,50 @@
     </div>
   </form>
   <div id="employee-work" hidden>
+  <div class="inbox-grid">
+    <section aria-labelledby="inbox-title">
+      <h2 id="inbox-title">İade talepleri</h2>
+      <p class="inbox-meta">Örnek posta kutusu</p>
+      <div id="inbox-list"></div>
+    </section>
+    <section aria-labelledby="inbox-conversation">
+      <h2 id="inbox-conversation">Vaka sohbeti</h2>
+      <p id="inbox-empty" class="inbox-meta">Başlamak için bir iade maili seç.</p>
+      <div id="inbox-case" hidden>
+        <strong id="inbox-subject"></strong>
+        <p id="inbox-sender" class="inbox-meta"></p>
+        <p id="inbox-original" class="inbox-message"></p>
+        <div id="inbox-thread" role="log" aria-label="Vaka sohbeti geçmişi"></div>
+        <p id="inbox-status" role="status"></p>
+        <button id="inbox-retry" type="button" hidden>Tekrar dene</button>
+        <form id="inbox-answers" hidden>
+          <div id="inbox-questions"></div>
+          <button type="submit">Bilgileri ilet</button>
+        </form>
+        <form id="inbox-chat" hidden>
+          <label for="inbox-message">Netle’ye yaz</label>
+          <textarea id="inbox-message" rows="2" required maxlength="2000"></textarea>
+          <button type="submit">Sohbete gönder</button>
+          <button id="inbox-revise" name="revise" type="submit" hidden>Taslağı bu notla güncelle</button>
+        </form>
+      </div>
+    </section>
+    <section aria-labelledby="inbox-draft-title">
+      <h2 id="inbox-draft-title">Yanıt taslağı</h2>
+      <p id="inbox-draft-empty" class="inbox-meta">Taslak hazır olduğunda burada düzenleyebilirsin.</p>
+      <form id="inbox-draft-panel" hidden>
+        <div class="field"><label for="inbox-recipient">Alıcı</label><input id="inbox-recipient" type="email" required></div>
+        <div class="field"><label for="inbox-reply-subject">Konu</label><input id="inbox-reply-subject" maxlength="250" required></div>
+        <label for="inbox-draft">Mesaj</label>
+        <textarea id="inbox-draft" rows="10" maxlength="12000" required></textarea>
+        <details><summary>Politika kaynakları</summary><ul id="inbox-sources"></ul></details>
+        <button id="inbox-send" type="submit">Gönder</button>
+        <p id="inbox-send-status" role="status"></p>
+      </form>
+    </section>
+  </div>
+  <details id="legacy-workspace">
+  <summary>Elle talep gir ve prompt şablonlarını yönet</summary>
   <form id="request-form">
     <label for="request">İade isteğin</label>
     <textarea id="request" rows="4" required maxlength="2000" placeholder="Müşteri kahve makinesini iade etmek istiyor. Kutusunu açmış. Ne yazayım?"></textarea>
@@ -168,19 +234,57 @@
       </table>
     </details>
   </section>
+  </details>
   </div>
 </main>
+<script src="/netle_inbox.js"></script>
 <script>
   const requestForm = document.querySelector('#request-form');
   const answersForm = document.querySelector('#answers-form');
   const questions = document.querySelector('#questions');
   const result = document.querySelector('#result');
   const status = document.querySelector('#status');
-  const buttons = document.querySelectorAll('button');
+  const buttons = document.querySelectorAll('button:not(.inbox-grid button)');
   let sessionId;
   let previewId;
   let busy = false;
   let currentRole = null;
+
+  function todayDateInput() {
+    const now = new Date();
+    return [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+      .map(value => String(value).padStart(2, '0')).join('-');
+  }
+
+  function deliveryUnknownOption(checked = false) {
+    const label = document.createElement('label');
+    label.className = 'delivery-unknown';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.name = 'teslim_tarihi_bilinmiyor';
+    input.checked = checked;
+    label.append(input, 'Bilmiyorum');
+    return label;
+  }
+
+  function updateDeliveryFields(form) {
+    const unknown = form.elements.namedItem('teslim_tarihi_bilinmiyor');
+    if (!unknown) return;
+    const date = form.querySelector('input[type="date"]');
+    date.disabled = unknown.checked || unknown.disabled;
+    date.required = !unknown.checked;
+    for (const select of form.querySelectorAll('select')) select.required = !unknown.checked;
+  }
+
+  function refundAnswers(form) {
+    const answers = {};
+    for (const [key, value] of new FormData(form)) {
+      if (key === 'teslim_tarihi_bilinmiyor') answers[key] = true;
+      else if (key === 'teslim_tarihi' || key === 'teslimattan_sonra_gun') answers.teslim_tarihi = value;
+      else if (value) answers[key] = value === 'true';
+    }
+    return answers;
+  }
 
   async function post(path, payload) {
     const response = await fetch(path, {
@@ -264,22 +368,24 @@
           const label = document.createElement('label');
           label.htmlFor = key;
           label.textContent = text;
-          const numeric = key === 'teslimattan_sonra_gun';
-          const input = document.createElement(numeric ? 'input' : 'select');
-          input.id = input.name = key;
+          const isDeliveryDate = key === 'teslimattan_sonra_gun';
+          const input = document.createElement(isDeliveryDate ? 'input' : 'select');
+          input.id = key;
+          input.name = isDeliveryDate ? 'teslim_tarihi' : key;
           input.required = true;
-          if (numeric) {
-            input.type = 'number';
-            input.min = 0;
-            input.max = 9999;
+          if (isDeliveryDate) {
+            input.type = 'date';
+            input.max = todayDateInput();
           } else {
             input.add(new Option('Seç', ''));
             input.add(new Option('Evet', 'true'));
             input.add(new Option('Hayır', 'false'));
           }
           field.append(label, input);
+          if (isDeliveryDate) field.append(deliveryUnknownOption());
           questions.append(field);
         }
+        updateDeliveryFields(answersForm);
         questions.querySelector('input, select').focus();
       } else {
         showResult(data);
@@ -301,11 +407,10 @@
     answersForm.hidden = result.hidden = true;
     submit({action: 'start', request: document.querySelector('#request').value});
   });
+  answersForm.addEventListener('change', () => updateDeliveryFields(answersForm));
   answersForm.addEventListener('submit', event => {
     event.preventDefault();
-    const answers = Object.fromEntries(Array.from(new FormData(answersForm), ([key, value]) =>
-      [key, key === 'teslimattan_sonra_gun' ? Number(value) : value === 'true']
-    ));
+    const answers = refundAnswers(answersForm);
     submit({action: 'resume', session_id: sessionId, answers});
   });
 
@@ -451,6 +556,9 @@
     document.querySelector('#workspace-title').textContent = isAdmin ? 'Netle Yönetim' : 'Netle';
     document.querySelector('#employee-description').hidden = isAdmin;
     document.querySelector('#employee-work').hidden = !username || isAdmin;
+    document.body.classList.toggle('inbox-active', Boolean(username) && !isAdmin);
+    if (!username || isAdmin) resetInbox();
+    else renderInbox();
     document.querySelector('#account-menu').hidden = !username;
     document.querySelector('#employee-name').textContent = username ?? '';
     document.querySelector('#admin-documents').hidden = !isAdmin;
