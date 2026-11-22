@@ -147,12 +147,13 @@ def reply(db_path, payload, employee_id=None):
         request = payload.get("request", "").strip()
         if not request or len(request) > 12000:
             raise ValueError("İade isteği 1–12000 karakter arasında olmalı.")
-        flow, facts = intake(request)
+        followup = payload.get("followup") is True
+        flow, facts = ("standard", {}) if followup else intake(request)
         session_id = uuid4().hex
         command = {
             "session_id": session_id,
             "scenario": {"ilk_istek": request,
-                         "ilk_bilgiler": facts},
+                         "ilk_bilgiler": facts, "followup": followup},
             "facts": facts,
             "flow": flow,
             "chat_model": "qwen2.5:1.5b",
@@ -181,6 +182,26 @@ def reply(db_path, payload, employee_id=None):
                 raise ValueError("Bu hesaba ait devam edilebilir bir iade oturumu bulunamadı.")
         db.execute(CREATE_CALLS)
         graph = make_graph(db, saver)
+        if action == "start" and followup and employee_id is not None:
+            previous_ids = payload.get("previous_message_ids", [])
+            if not isinstance(previous_ids, list) or len(previous_ids) > 45:
+                raise ValueError("E-posta zincirindeki önceki mesajlar geçersiz.")
+            setup_sent_mail(db)
+            for parent_id in reversed(previous_ids):
+                if not isinstance(parent_id, str) or len(parent_id) > 250:
+                    continue
+                previous = db.execute(
+                    """SELECT m.refund_id FROM reply_messages m JOIN sent_replies s USING (refund_id)
+                       WHERE m.employee_id = ? AND m.message_id = ? AND s.sent = 1""",
+                    (employee_id, parent_id),
+                ).fetchone()
+                if previous:
+                    prior = graph.get_state({"configurable": {"thread_id": previous[0]}}).values
+                    if prior:
+                        command["flow"] = prior.get("flow", "standard")
+                        command["facts"] = {key: value for key, value in prior.get("facts", {}).items()
+                                            if value is not None and key != "teslimattan_sonra_gun"}
+                        break
         if action in ("discuss", "revise"):
             state = graph.get_state(config).values
             if not state.get("scenario"):

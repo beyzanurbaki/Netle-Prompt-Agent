@@ -5,6 +5,7 @@ import imaplib
 import os
 import re
 import ssl
+import time
 from email import policy
 from email.parser import BytesParser
 from html.parser import HTMLParser
@@ -59,6 +60,7 @@ def gmail_settings():
 def parse_mail(raw, identifier):
     message = BytesParser(policy=policy.default).parsebytes(raw)
     sender = message["From"]
+    senders = getattr(sender, "addresses", ())
     reply_to = message["Reply-To"] or sender
     addresses = getattr(reply_to, "addresses", ())
     part = message.get_body(preferencelist=("plain", "html"))
@@ -74,6 +76,7 @@ def parse_mail(raw, identifier):
         references = previous if len(previous) == 1 else []
     thread = {"message_id": parent[0], "references": references[-32:]} if len(parent) == 1 else None
     return {"id": identifier, "sender": str(sender or ""), "subject": str(message["Subject"] or "Konusuz"),
+            "sender_address": senders[0].addr_spec if len(senders) == 1 else "",
             "recipient": addresses[0].addr_spec if len(addresses) == 1 else "",
             "thread": thread,
             "body": body.strip()[:12000], "attachments": [
@@ -92,8 +95,7 @@ def mark_sent_replies(inbox, items, thread_ids):
                      if isinstance(folder, bytes) and b"\\Sent" in folder.split(b")", 1)[0].lstrip(b"(").split()), None)
         if sent is None or inbox.select(sent.decode("ascii"), readonly=True)[0] != "OK":
             return
-        criteria = ["X-GM-THRID " + thread_id for thread_id in sorted(thread_ids)]
-        status, uids = inbox.uid("SEARCH", None, "OR " * (len(criteria) - 1) + " ".join(criteria))
+        status, uids = inbox.uid("SEARCH", None, thread_search(thread_ids))
         if status != "OK" or not uids[0]:
             return
         status, parts = inbox.uid("FETCH", b",".join(uids[0].split()[-100:]),
@@ -110,6 +112,43 @@ def mark_sent_replies(inbox, items, thread_ids):
     for mail in items:
         if mail["thread"] and mail["thread"]["message_id"] in answered:
             mail["delivery_state"] = "sent"
+
+
+def thread_search(thread_ids):
+    criteria = ["X-GM-THRID " + thread_id for thread_id in sorted(thread_ids)]
+    return "OR " * (len(criteria) - 1) + " ".join(criteria)
+
+
+def read_mail(inbox, uid, validity):
+    status, parts = inbox.uid("FETCH", uid, "(X-GM-THRID INTERNALDATE BODY.PEEK[]<0.262144>)")
+    if status != "OK":
+        return None
+    message_part = next((part for part in parts if isinstance(part, tuple)), None)
+    if not message_part:
+        return None
+    metadata = b" ".join(part[0] if isinstance(part, tuple) else part for part in parts if part)
+    mail = parse_mail(message_part[1], f"gmail-{validity}-{uid.decode()}")
+    thread = re.search(rb"\bX-GM-THRID (\d+)\b", metadata)
+    internal_date = imaplib.Internaldate2tuple(metadata)
+    mail["conversation_id"] = "gmail-thread-" + thread[1].decode() if thread else mail["id"]
+    mail["arrived"] = time.mktime(internal_date) if internal_date else 0
+    return mail
+
+
+def group_conversations(items):
+    conversations = {}
+    seen = set()
+    for mail in sorted(items, key=lambda item: item["arrived"]):
+        identity = (mail["thread"] or {}).get("message_id", mail["id"])
+        if identity in seen:
+            continue
+        seen.add(identity)
+        conversations.setdefault(mail["conversation_id"], []).append(mail)
+    return [
+        {**messages[-1], "id": key, "messages": messages,
+         "followup": len(messages) > 1}
+        for key, messages in reversed(sorted(conversations.items(), key=lambda entry: entry[1][-1]["arrived"]))
+    ]
 
 
 def list_refund_mail(username):
@@ -136,20 +175,19 @@ def list_refund_mail(username):
             status, numbers = inbox.uid("SEARCH", None, "ALL")
             if status != "OK":
                 raise ValueError("Gmail etiketi okunamadı.")
-            items = []
-            thread_ids = set()
-            for uid in reversed(numbers[0].split()[-15:]):
-                status, parts = inbox.uid("FETCH", uid, "(X-GM-THRID BODY.PEEK[]<0.262144>)")
-                if status != "OK":
-                    continue
-                message_part = next((part for part in parts if isinstance(part, tuple)), None)
-                if message_part:
-                    items.append(parse_mail(message_part[1], f"gmail-{validity[0].decode()}-{uid.decode()}"))
-                    metadata = b" ".join(part[0] if isinstance(part, tuple) else part for part in parts if part)
-                    thread = re.search(rb"\bX-GM-THRID (\d+)\b", metadata)
-                    if thread:
-                        thread_ids.add(thread[1].decode("ascii"))
+            items = [mail for uid in numbers[0].split()[-15:]
+                     if (mail := read_mail(inbox, uid, validity[0].decode()))
+                     and mail["sender_address"].casefold() != address.casefold()]
+            thread_ids = {mail["conversation_id"].removeprefix("gmail-thread-") for mail in items
+                          if mail["conversation_id"].startswith("gmail-thread-")}
+            if thread_ids and inbox.select("INBOX", readonly=True)[0] == "OK":
+                status, uids = inbox.uid("SEARCH", None, thread_search(thread_ids))
+                if status == "OK" and uids[0]:
+                    for uid in uids[0].split()[-30:]:
+                        mail = read_mail(inbox, uid, "inbox")
+                        if mail and mail["sender_address"].casefold() != address.casefold():
+                            items.append(mail)
             mark_sent_replies(inbox, items, thread_ids)
-            return {"enabled": True, "mails": items}
+            return {"enabled": True, "mails": group_conversations(items)}
     except (OSError, imaplib.IMAP4.error):
         raise ValueError("Gmail bağlantısı kurulamadı. Hesabı, uygulama şifresini ve Netle İade etiketini kontrol et.") from None

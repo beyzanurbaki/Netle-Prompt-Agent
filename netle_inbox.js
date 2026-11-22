@@ -28,11 +28,16 @@ let selectedRefundMail = null;
 let inboxMails = sampleRefundMails;
 let inboxRefresh = null;
 
+function mailVersion(mail) {
+  return mail.thread?.message_id || mail.messages?.at(-1)?.id || mail.id;
+}
+
 function renderInbox() {
   const mail = selectedRefundMail;
   const active = mail && refundCases.get(mail.id);
   inbox('list').replaceChildren(...inboxMails.map(sample => {
-    const entry = refundCases.get(sample.id);
+    const saved = refundCases.get(sample.id);
+    const entry = saved?.version === mailVersion(sample) ? saved : null;
     const button = document.createElement('button');
     button.className = 'inbox-mail';
     button.type = 'button';
@@ -45,7 +50,7 @@ function renderInbox() {
       : sample.delivery_state === 'uncertain' ? 'Gönderim belirsiz'
       : entry?.busy ? 'İşleniyor' : entry?.error ? 'İşlem bekliyor'
       : entry?.questions ? 'Bilgi bekliyor' : entry?.hasDraft ? 'Taslak hazır'
-      : entry?.readyForDraft ? 'Yanıt bekliyor' : 'Yeni';
+      : entry?.readyForDraft || sample.followup ? 'Yanıt bekliyor' : 'Yeni';
     if (sent) {
       const check = document.createElement('span');
       check.setAttribute('aria-hidden', 'true');
@@ -81,6 +86,14 @@ function renderInbox() {
   inbox('original').textContent = mail.body;
   inbox('attachments').hidden = !mail.attachments?.length;
   inbox('attachments').textContent = mail.attachments?.join(', ') || '';
+  const earlier = mail.messages?.slice(0, -1) || [];
+  inbox('history').hidden = !earlier.length;
+  inbox('history-messages').replaceChildren(...earlier.map(previous => {
+    const body = document.createElement('p');
+    body.className = 'inbox-message';
+    body.textContent = previous.sender + '\n\n' + previous.body;
+    return body;
+  }));
   const thread = inbox('thread');
   thread.replaceChildren(...active.turns.map(({employee, text}) => {
     const turn = document.createElement('p');
@@ -147,12 +160,15 @@ function sizeInboxDraft() {
 
 function openRefundMail(mail) {
   selectedRefundMail = mail;
-  if (refundCases.has(mail.id)) {
+  const previous = refundCases.get(mail.id);
+  const version = mailVersion(mail);
+  if (previous?.version === version) {
     renderInbox();
     return;
   }
   const entry = {
-    busy: false, turns: [], sources: [], answers: {}, message: '', draft: '',
+    version, busy: false, turns: previous?.turns.slice() || [],
+    sources: [], answers: {}, message: '', draft: '',
     subject: /^re:/i.test(mail.subject) ? mail.subject : 'Re: ' + mail.subject,
     recipient: mail.recipient
   };
@@ -162,8 +178,17 @@ function openRefundMail(mail) {
     renderInbox();
     return;
   }
-  const request = mail.id.startsWith('gmail-') ? (mail.subject + '\n\n' + mail.body).slice(0, 12000) : mail.body;
-  runInboxRequest(mail, {action: 'start', request, defer_draft: true});
+  const previousMessages = mail.messages?.slice(0, -1) || [];
+  const previousText = previousMessages.map(item => item.body).join('\n\n');
+  const request = mail.followup
+    ? 'Konu: ' + mail.subject.slice(0, 300) + '\n\nÖnceki müşteri mesajları:\n' + previousText.slice(-4000)
+      + '\n\nSon müşteri mesajı:\n' + mail.body.slice(0, 7500)
+    : mail.id.startsWith('gmail-') ? (mail.subject + '\n\n' + mail.body).slice(0, 12000) : mail.body;
+  if (mail.followup) entry.turns.push({text: 'Müşterinin yeni mesajı bu vakaya eklendi.'});
+  runInboxRequest(mail, {
+    action: 'start', request, defer_draft: true, followup: Boolean(mail.followup),
+    previous_message_ids: previousMessages.map(item => item.thread?.message_id).filter(Boolean)
+  });
 }
 
 async function runInboxRequest(mail, payload, employeeTurn) {
@@ -235,7 +260,7 @@ async function refreshInbox() {
     inboxMails = data.mails;
     for (const mail of inboxMails) {
       const entry = refundCases.get(mail.id);
-      if (entry && mail.delivery_state === 'sent') {
+      if (entry?.version === mailVersion(mail) && mail.delivery_state === 'sent') {
         entry.sent = true;
         entry.sendStatus = 'Bu e-postaya yanıt gönderildi.';
       }
@@ -243,7 +268,8 @@ async function refreshInbox() {
     selectedRefundMail = inboxMails.find(mail => mail.id === selectedRefundMail?.id) ?? null;
     inbox('source').textContent = 'Gmail · Netle İade';
     inbox('load-status').textContent = inboxMails.length ? '' : 'Bu etikette henüz mail yok.';
-    renderInbox();
+    if (selectedRefundMail) openRefundMail(selectedRefundMail);
+    else renderInbox();
   } catch (error) {
     if (inboxRefresh === refresh) inbox('load-status').textContent = error.message;
   } finally {
