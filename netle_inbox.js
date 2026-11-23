@@ -24,6 +24,17 @@ const sampleRefundMails = [
 
 const inbox = id => document.querySelector('#inbox-' + id);
 const refundCases = new Map();
+const employeeResponses = {
+  'missing-document': {
+    label: 'Eksik belge',
+    message: detail => 'İade talebinizi aldık. İncelemeye devam edebilmemiz için aşağıdaki belgeyi bu e-postayı yanıtlayarak paylaşabilir misiniz?\n\n' + detail
+  },
+  rejected: {
+    label: 'Ret gerekçesi',
+    message: detail => 'İade talebinizi inceledik. Talebiniz aşağıdaki gerekçeyle onaylanmadı.\n\n' + detail
+  },
+  approved: {message: () => 'İade talebinizi inceledik ve onayladık.'}
+};
 let selectedRefundMail = null;
 let inboxMails = sampleRefundMails;
 let inboxRefresh = null;
@@ -58,7 +69,7 @@ function renderInbox() {
     state.textContent = sent ? 'Gönderildi'
       : sample.delivery_state === 'uncertain' ? 'Gönderim belirsiz'
       : entry?.busy ? 'İşleniyor' : entry?.error ? 'İşlem bekliyor'
-      : entry?.questions ? 'Bilgi bekliyor' : entry?.hasDraft ? 'Taslak hazır'
+      : entry?.hasDraft ? 'Taslak hazır' : entry?.questions ? 'Bilgi bekliyor'
       : entry?.readyForDraft || sample.followup ? 'Yanıt bekliyor' : 'Yeni';
     if (sent) {
       const check = document.createElement('span');
@@ -75,14 +86,13 @@ function renderInbox() {
   inbox('case').hidden = !active;
   inbox('draft-empty').hidden = Boolean(active?.hasDraft);
   inbox('draft-panel').hidden = !active?.hasDraft;
-  inbox('create-draft').hidden = Boolean(active?.hasDraft);
-  inbox('create-draft').disabled = !active?.readyForDraft || active.busy;
+  updateResponseOptions(active);
   inbox('draft-empty').textContent = !active ? 'Yanıt hazırlamak için bir iade e-postası seç.'
     : active.sent ? 'Bu e-postaya yanıt gönderildi.'
     : mail.delivery_state === 'uncertain' ? 'Gönderim sonucu belirsiz. Posta kutusunu kontrol et.'
     : active.error ? 'Sohbet panelindeki işlem durumunu kontrol et.'
     : active.busy ? 'Netle çalışıyor…'
-    : active.questions ? 'Önce sohbet panelindeki eksik bilgileri yanıtla.'
+    : active.questions ? 'Netle önerisi için sohbet panelindeki soruları yanıtla veya bir yanıt türü seç.'
     : 'Yanıt oluştur’a basarak düzenlenebilir taslağı hazırla.';
   if (!active) {
     for (const field of ['recipient', 'reply-subject', 'draft', 'message']) inbox(field).value = '';
@@ -122,7 +132,7 @@ function renderInbox() {
   inbox('status').className = active.error ? 'error' : '';
   inbox('retry').hidden = active.busy || !active.retry;
   inbox('chat').hidden = !active.sessionId;
-  inbox('revise').hidden = !active.hasDraft;
+  inbox('revise').hidden = !active.hasDraft || active.employeeDraft;
   inbox('answers').hidden = !active.questions;
   inbox('questions').replaceChildren(...Object.entries(active.questions || {}).map(([key, question]) => {
     const group = document.createElement('div');
@@ -152,6 +162,7 @@ function renderInbox() {
   inbox('draft').value = active.draft;
   sizeInboxDraft();
   showList(inbox('sources'), active.sources);
+  inbox('policy-sources').hidden = !active.sources.length;
   for (const field of inbox('case').querySelectorAll('form button, form select, form input, form textarea')) {
     field.disabled = active.busy;
   }
@@ -166,6 +177,27 @@ function renderInbox() {
   inbox('send-status').textContent = active.sendStatus || (missingThread
     ? 'Özgün e-postada zincir kimliği bulunamadığı için yanıt gönderilemiyor.'
     : mail.thread ? 'Yanıt, özgün e-posta zincirine bağlanacak.' : '');
+}
+
+function updateResponseOptions(entry) {
+  inbox('draft-options').hidden = !entry?.sessionId || Boolean(entry.sent);
+  const type = entry?.responseType || 'suggested';
+  const response = employeeResponses[type];
+  const select = inbox('response-type');
+  const detail = inbox('response-detail');
+  const create = inbox('create-draft');
+  select.value = type;
+  select.disabled = Boolean(entry?.busy);
+  const detailLabel = response?.label || '';
+  inbox('response-detail-field').hidden = !detailLabel;
+  inbox('response-detail-label').textContent = detailLabel;
+  detail.value = entry?.responseDetails[type] || '';
+  detail.setCustomValidity('');
+  detail.disabled = Boolean(entry?.busy);
+  detail.required = Boolean(detailLabel);
+  create.hidden = !response && Boolean(entry?.hasDraft) && !entry?.readyForDraft;
+  create.disabled = !entry || entry.busy || (!response && !entry.readyForDraft);
+  create.textContent = entry?.hasDraft ? 'Yeni taslak oluştur' : 'Yanıt oluştur';
 }
 
 function sizeInboxDraft() {
@@ -184,7 +216,7 @@ function openRefundMail(mail) {
   }
   const entry = {
     version, busy: false, turns: previous?.turns.slice() || [],
-    sources: [], answers: {}, message: '', draft: '',
+    sources: [], answers: {}, message: '', draft: '', responseType: 'suggested', responseDetails: {},
     subject: /^re:/i.test(mail.subject) ? mail.subject : 'Re: ' + mail.subject,
     recipient: mail.recipient
   };
@@ -231,8 +263,9 @@ async function runInboxRequest(mail, payload, employeeTurn) {
         : data.ready_for_draft ? 'Sağ panelden yanıt taslağını oluşturabilirsin.'
         : 'Yanıt taslağı sağ panelde hazır.'});
     }
-    if (typeof data.draft === 'string') {
+    if (typeof data.draft === 'string' && !(entry.employeeDraft && payload.action === 'resume')) {
       entry.hasDraft = true;
+      entry.employeeDraft = false;
       entry.draft = data.draft;
       entry.sources = data.sources;
     } else if (data.message && data.sources.length) {
@@ -298,10 +331,41 @@ async function refreshInbox() {
 
 inbox('refresh').addEventListener('click', refreshInbox);
 
+inbox('response-type').addEventListener('change', event => {
+  const entry = refundCases.get(selectedRefundMail.id);
+  entry.responseType = event.target.value;
+  updateResponseOptions(entry);
+});
+
+inbox('response-detail').addEventListener('input', event => {
+  const entry = refundCases.get(selectedRefundMail.id);
+  event.target.setCustomValidity('');
+  entry.responseDetails[entry.responseType] = event.target.value;
+});
+
 inbox('create-draft').addEventListener('click', () => {
   const mail = selectedRefundMail;
   const entry = mail && refundCases.get(mail.id);
-  if (entry?.readyForDraft) runInboxRequest(mail, {action: 'generate', session_id: entry.sessionId});
+  if (!entry?.sessionId || entry.busy || entry.sent) return;
+  const response = employeeResponses[entry.responseType];
+  if (!response) {
+    if (entry.readyForDraft) runInboxRequest(mail, {action: 'generate', session_id: entry.sessionId});
+    return;
+  }
+  const input = inbox('response-detail');
+  const detail = (entry.responseDetails[entry.responseType] || '').trim();
+  if (response.label && !detail) {
+    input.setCustomValidity(response.label + ' alanını doldur.');
+    input.reportValidity();
+    return;
+  }
+  entry.draft = 'Merhaba,\n\n' + response.message(detail) + '\n\nİyi çalışmalar dileriz.';
+  entry.hasDraft = true;
+  entry.employeeDraft = true;
+  entry.sources = [];
+  entry.sendStatus = '';
+  renderInbox();
+  inbox('draft').focus();
 });
 
 inbox('retry').addEventListener('click', () => {

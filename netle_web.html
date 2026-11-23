@@ -186,13 +186,26 @@
     <section aria-labelledby="inbox-draft-title">
       <h2 id="inbox-draft-title">Yanıt taslağı</h2>
       <p id="inbox-draft-empty" class="inbox-meta">Yanıt hazırlamak için bir iade e-postası seç.</p>
-      <button id="inbox-create-draft" type="button" disabled>Yanıt oluştur</button>
+      <div id="inbox-draft-options" hidden>
+        <label for="inbox-response-type">Yanıt türü</label>
+        <select id="inbox-response-type">
+          <option value="suggested">Netle önerisi</option>
+          <option value="missing-document">Talep alındı, belge eksik</option>
+          <option value="rejected">İade onaylanmadı</option>
+          <option value="approved">İade onaylandı</option>
+        </select>
+        <div class="field" id="inbox-response-detail-field" hidden>
+          <label for="inbox-response-detail" id="inbox-response-detail-label"></label>
+          <textarea id="inbox-response-detail" rows="2" maxlength="500"></textarea>
+        </div>
+        <button id="inbox-create-draft" type="button" disabled>Yanıt oluştur</button>
+      </div>
       <form id="inbox-draft-panel" hidden>
         <div class="field"><label for="inbox-recipient">Alıcı</label><input id="inbox-recipient" type="email" required></div>
         <div class="field"><label for="inbox-reply-subject">Konu</label><input id="inbox-reply-subject" maxlength="250" required></div>
         <label for="inbox-draft">Mesaj</label>
         <textarea id="inbox-draft" rows="10" maxlength="12000" required></textarea>
-        <details><summary>Politika kaynakları</summary><ul id="inbox-sources"></ul></details>
+        <details id="inbox-policy-sources"><summary>Politika kaynakları</summary><ul id="inbox-sources"></ul></details>
         <button id="inbox-send" type="submit">Gönder</button>
         <p id="inbox-send-status" role="status"></p>
       </form>
