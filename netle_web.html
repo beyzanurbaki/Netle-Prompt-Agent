@@ -65,6 +65,9 @@
     .inbox-mail strong, .inbox-mail small { display: block; }
     .inbox-mail .inbox-mail-sent { color: #17633a; font-weight: 650; }
     .inbox-message, .inbox-turn { margin: 12px 0; padding: 12px; background: #f3f5ef; border-radius: 9px; white-space: pre-wrap; }
+    .inbox-message.customer { background: #eef5ff; border-inline-start: 3px solid #4b78aa; }
+    .inbox-message.sent-reply { background: #eaf6ed; border-inline-start: 3px solid #377650; }
+    .inbox-message strong { display: block; margin-bottom: 4px; }
     .inbox-turn.employee { background: #e1eee4; margin-left: 22px; }
     #inbox-thread { max-height: 300px; overflow: auto; }
     #inbox-status { color: #425d53; }
@@ -154,12 +157,17 @@
       <div id="inbox-case" hidden>
         <strong id="inbox-subject"></strong>
         <p id="inbox-sender" class="inbox-meta"></p>
-        <p id="inbox-original" class="inbox-message"></p>
+        <div id="inbox-original"></div>
         <p id="inbox-attachments" class="inbox-meta" hidden></p>
+        <details id="inbox-quoted" hidden>
+          <summary>E-postadaki alıntıyı göster</summary>
+          <p id="inbox-quoted-body" class="inbox-message"></p>
+        </details>
         <details id="inbox-history" hidden>
-          <summary>Önceki müşteri mesajları</summary>
+          <summary>Önceki e-postalar</summary>
           <div id="inbox-history-messages"></div>
         </details>
+        <div id="inbox-sent-reply"></div>
         <div id="inbox-thread" role="log" aria-label="Vaka sohbeti geçmişi"></div>
         <p id="inbox-status" role="status"></p>
         <button id="inbox-retry" type="button" hidden>Tekrar dene</button>

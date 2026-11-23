@@ -22,8 +22,16 @@ class MailText(HTMLParser):
         super().__init__()
         self.parts = []
         self.hidden = None
+        self.quote_start = None
 
     def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        classes = (attributes.get("class") or "").split()
+        if self.quote_start is None and (
+            "gmail_quote" in classes or "gmail_attr" in classes
+            or (tag == "blockquote" and attributes.get("type") == "cite")
+        ):
+            self.quote_start = len(self.parts)
         if tag in ("style", "script", "head"):
             self.hidden = tag
         if tag in ("br", "p", "div", "li") and not self.hidden:
@@ -36,6 +44,43 @@ class MailText(HTMLParser):
     def handle_data(self, data):
         if not self.hidden:
             self.parts.append(data)
+
+
+def split_plain_reply(body):
+    lines = body.splitlines()
+    for index, line in enumerate(lines):
+        if not line.lstrip().startswith(">"):
+            continue
+        prefix = "\n".join(lines[:index]).rstrip()
+        if not prefix:
+            break
+        attribution = re.search(
+            r"(?im)(?:^|\n)(?:On\s+[^\n]{1,500}\bwrote\s*:|[^\n]{1,500}\byazdı\s*:)\s*\Z",
+            prefix,
+        )
+        start = len(prefix[:attribution.start()].splitlines()) if attribution else index
+        current = "\n".join(lines[:start]).strip()
+        if current and all(not line.strip() or line.lstrip().startswith(">") for line in lines[index:]):
+            return current, "\n".join(lines[start:]).strip()
+        break
+    return body.strip(), ""
+
+
+def mail_body(message):
+    plain = message.get_body(preferencelist=("plain",))
+    body, quoted = split_plain_reply(plain.get_content()) if plain else ("", "")
+    if quoted:
+        return body, quoted
+    html = message.get_body(preferencelist=("html",))
+    if not html:
+        return body, ""
+    parser = MailText()
+    parser.feed(html.get_content())
+    if parser.quote_start is not None:
+        current = "".join(parser.parts[:parser.quote_start]).strip()
+        if current:
+            return current, "".join(parser.parts[parser.quote_start:]).strip()
+    return body or "".join(parser.parts).strip(), ""
 
 
 def imap_label(label):
@@ -63,12 +108,7 @@ def parse_mail(raw, identifier):
     senders = getattr(sender, "addresses", ())
     reply_to = message["Reply-To"] or sender
     addresses = getattr(reply_to, "addresses", ())
-    part = message.get_body(preferencelist=("plain", "html"))
-    body = part.get_content() if part else ""
-    if part and part.get_content_type() == "text/html":
-        parser = MailText()
-        parser.feed(body)
-        body = "".join(parser.parts)
+    body, quoted = mail_body(message)
     parent = message_ids(message["Message-ID"])
     references = message_ids(message["References"])
     if not references:
@@ -79,7 +119,7 @@ def parse_mail(raw, identifier):
             "sender_address": senders[0].addr_spec if len(senders) == 1 else "",
             "recipient": addresses[0].addr_spec if len(addresses) == 1 else "",
             "thread": thread,
-            "body": body.strip()[:12000], "attachments": [
+            "body": body[:12000], "quoted_body": quoted[:12000], "attachments": [
                 part.get_filename() for part in message.iter_attachments() if part.get_filename()
             ]}
 
@@ -99,19 +139,31 @@ def mark_sent_replies(inbox, items, thread_ids):
         if status != "OK" or not uids[0]:
             return
         status, parts = inbox.uid("FETCH", b",".join(uids[0].split()[-100:]),
-                                  "(BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO)])")
+                                  "(UID BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO)])")
+        if status != "OK":
+            return
+        incoming = {}
+        for mail in items:
+            if mail["thread"]:
+                incoming.setdefault(mail["thread"]["message_id"], []).append(mail)
+        sent_ids = {}
+        for part in parts:
+            if not isinstance(part, tuple):
+                continue
+            metadata, header = part
+            uid = re.search(rb"\bUID (\d+)\b", metadata)
+            for parent in message_ids(BytesParser(policy=policy.default).parsebytes(header)["In-Reply-To"]):
+                for mail in incoming.get(parent, []):
+                    mail["delivery_state"] = "sent"
+                if uid and parent in incoming:
+                    sent_ids[parent] = uid[1]
+        for parent, uid in sent_ids.items():
+            sent_message = read_mail(inbox, uid, "sent")
+            if sent_message and sent_message["body"]:
+                for mail in incoming[parent]:
+                    mail["sent_reply"] = sent_message["body"]
     except (imaplib.IMAP4.error, UnicodeError):
         return
-    if status != "OK":
-        return
-    answered = {
-        parent
-        for part in parts if isinstance(part, tuple)
-        for parent in message_ids(BytesParser(policy=policy.default).parsebytes(part[1])["In-Reply-To"])
-    }
-    for mail in items:
-        if mail["thread"] and mail["thread"]["message_id"] in answered:
-            mail["delivery_state"] = "sent"
 
 
 def thread_search(thread_ids):

@@ -32,6 +32,15 @@ function mailVersion(mail) {
   return mail.thread?.message_id || mail.messages?.at(-1)?.id || mail.id;
 }
 
+function mailCard(label, text, style) {
+  const card = document.createElement('div');
+  card.className = 'inbox-message ' + style;
+  const title = document.createElement('strong');
+  title.textContent = label;
+  card.append(title, text);
+  return card;
+}
+
 function renderInbox() {
   const mail = selectedRefundMail;
   const active = mail && refundCases.get(mail.id);
@@ -83,17 +92,24 @@ function renderInbox() {
 
   inbox('subject').textContent = mail.subject;
   inbox('sender').textContent = mail.sender;
-  inbox('original').textContent = mail.body;
+  inbox('original').replaceChildren(mailCard('Müşteri mesajı', mail.body, 'customer'));
+  const quoted = inbox('quoted');
+  const quotedBody = inbox('quoted-body');
+  if (quotedBody.textContent !== (mail.quoted_body || '')) quoted.open = false;
+  quoted.hidden = !mail.quoted_body;
+  quotedBody.textContent = mail.quoted_body || '';
   inbox('attachments').hidden = !mail.attachments?.length;
   inbox('attachments').textContent = mail.attachments?.join(', ') || '';
   const earlier = mail.messages?.slice(0, -1) || [];
   inbox('history').hidden = !earlier.length;
-  inbox('history-messages').replaceChildren(...earlier.map(previous => {
-    const body = document.createElement('p');
-    body.className = 'inbox-message';
-    body.textContent = previous.sender + '\n\n' + previous.body;
-    return body;
+  inbox('history-messages').replaceChildren(...earlier.flatMap(previous => {
+    const cards = [mailCard('Müşteri mesajı · ' + previous.sender, previous.body, 'customer')];
+    if (previous.sent_reply) cards.push(mailCard('Gönderdiğin yanıt', previous.sent_reply, 'sent-reply'));
+    return cards;
   }));
+  const sentReply = mail.sent_reply || active.sentReply;
+  inbox('sent-reply').replaceChildren(...(sentReply
+    ? [mailCard('Gönderdiğin yanıt', sentReply, 'sent-reply')] : []));
   const thread = inbox('thread');
   thread.replaceChildren(...active.turns.map(({employee, text}) => {
     const turn = document.createElement('p');
@@ -354,6 +370,7 @@ inbox('draft-panel').addEventListener('submit', async event => {
       body: entry.draft, thread: mail.thread
     });
     entry.sent = data.sent;
+    if (data.sent && !data.already_sent) entry.sentReply = entry.draft;
     entry.sendStatus = 'E-posta gönderildi.';
   } catch (error) {
     entry.sendStatus = error.message;

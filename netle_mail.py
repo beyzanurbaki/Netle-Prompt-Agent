@@ -88,7 +88,7 @@ def send_reply(db, employee_id, payload):
     previous = db.execute("SELECT sent FROM sent_replies WHERE refund_id = ?", (session_id,)).fetchone()
     if previous:
         if previous[0]:
-            return {"sent": True}
+            return {"sent": True, "already_sent": True}
         raise ValueError("Önceki gönderimin sonucu belirsiz. Yeniden göndermeden önce posta sunucusunu kontrol et.")
 
     settings = smtp_settings()
@@ -111,7 +111,7 @@ def send_reply(db, employee_id, payload):
     parent = str(message["In-Reply-To"]) if thread is not None else None
     status = reply_status(db, employee_id, parent) if parent else None
     if status == "sent":
-        return {"sent": True}
+        return {"sent": True, "already_sent": True}
     if status == "uncertain":
         raise ValueError("Önceki gönderimin sonucu belirsiz. Yeniden göndermeden önce posta sunucusunu kontrol et.")
     message.set_content(body)
