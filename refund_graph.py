@@ -33,6 +33,10 @@ INTERNAL_SECTION = re.compile(
 )
 
 
+class DraftContentError(ValueError):
+    """The model did not produce customer-facing text."""
+
+
 def customer_message(draft):
     """Keep the customer text ahead of any trailing internal section."""
     if "[[SOURCE_CONFLICT]]" in draft:
@@ -40,8 +44,26 @@ def customer_message(draft):
     message = INTERNAL_SECTION.split(draft, maxsplit=1)[0].strip()
     if not message or re.search(r"(?:IADE-POL#|DESTEK-REH#|DOC-\d+#|teslimattan_sonra_gun)",
                                 message, re.IGNORECASE):
-        raise ValueError("Müşteri taslağında iç bilgi bulundu.")
+        raise DraftContentError("Müşteri taslağında iç bilgi bulundu.")
     return message
+
+
+def generate_customer_draft(db, session_id, model, prompt):
+    system = (
+        CUSTOMER_MESSAGE_RULE
+        + " Selamlamayla başla ve yalnızca verilen onaylı belge kanıtlarına dayan. "
+        "Kaynak kodlarını, veri alanı adlarını ve iç değerlendirmeyi yanıta yazma."
+    )
+    draft = chat(db, session_id, model, "generate_draft", system, prompt)
+    try:
+        return customer_message(draft)
+    except DraftContentError:
+        draft = chat(
+            db, session_id, model, "retry_customer_draft", system,
+            prompt + "\n\nYanıtı yeniden yaz. İlk satır Merhaba, olsun. Ardından sadece "
+            "müşterinin okuyacağı mesajı yaz. Kaynak, teknik alan ve gerekçe başlığı ekleme.",
+        )
+        return customer_message(draft)
 
 
 QUESTIONS = {
@@ -116,7 +138,17 @@ def special_prompt(state):
             "reason": reason, "reviewed_message": example}
 
 
+def customer_withdrew_return(scenario):
+    return scenario.get("followup") and re.fullmatch(
+        r"(?:merhaba[,.!\s]*)?(?:iade etmekten vazgeçtim|iade talebimden vazgeçtim|"
+        r"(?:artık )?iade etmek istemiyorum)[.!\s]*",
+        scenario["ilk_istek"].strip(), re.IGNORECASE,
+    ) is not None
+
+
 def build_prompt(state):
+    if customer_withdrew_return(state["scenario"]):
+        return {"prompt": "", "reason": "Müşteri iade talebinden vazgeçtiğini bildirdi."}
     facts = state["facts"]
     if delivery_date_unknown(facts) and not state["scenario"].get("followup"):
         reason = "İade talebini değerlendirmek için teslim tarihi gerekiyor."
@@ -164,22 +196,27 @@ def make_graph(db, saver):
     setup_documents(db)
 
     def retrieve(state):
+        if customer_withdrew_return(state["scenario"]):
+            return {"sources": []}
         query = f"{state['scenario']['ilk_istek']}\n{json.dumps(state['facts'], ensure_ascii=False)}"
         chunks = retrieve_company_documents(db, state["session_id"], state["embed_model"], query)
         return {"sources": [asdict(chunk) for chunk in chunks]}
 
     def generate(state):
+        if customer_withdrew_return(state["scenario"]):
+            return {"draft": (
+                "Merhaba,\n\nİade talebinize devam etmek istemediğinizi anladık. "
+                "Bilgilendirdiğiniz için teşekkür ederiz."
+            ), "sources": []}
         if delivery_date_unknown(state["facts"]) and not state["scenario"].get("followup"):
             return {"draft": (
                 "Merhaba,\n\nİade talebinizi değerlendirebilmemiz için ürünü hangi tarihte "
                 "teslim aldığınızı gün, ay ve yıl olarak paylaşabilir misiniz?\n\nTeşekkür ederiz."
             ), "sources": []}
-        draft = chat(
-            db, state["session_id"], state["chat_model"], "generate_draft",
-            CUSTOMER_MESSAGE_RULE + " Yanıtı yalnızca verilen onaylı belge kanıtlarına dayandır.",
-            state["prompt"],
-        )
-        return {"draft": customer_message(draft)}
+        return {"draft": generate_customer_draft(
+            db, state["session_id"], state["chat_model"], state["prompt"],
+        )}
+
 
     def await_draft(state):
         interrupt({"ready_for_draft": True})

@@ -55,7 +55,9 @@ def split_plain_reply(body):
         if not prefix:
             break
         attribution = re.search(
-            r"(?im)(?:^|\n)(?:On\s+[^\n]{1,500}\bwrote\s*:|[^\n]{1,500}\byazdı\s*:)\s*\Z",
+            r"(?im)(?:^|\n)(?:On\s+[^\n]{1,500}\bwrote\s*:"
+            r"|[^\n]{1,500}\byazdı\s*:"
+            r"|[^\n]*<[^<>\n]+>\s+adresine sahip kullanıcı[^\n]*(?:\n[^\n]{0,150})?)\s*\Z",
             prefix,
         )
         start = len(prefix[:attribution.start()].splitlines()) if attribution else index

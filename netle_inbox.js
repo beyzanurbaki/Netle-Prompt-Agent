@@ -110,7 +110,8 @@ function renderInbox() {
   inbox('sender').textContent = mail.sender;
   const order = mail.order_check;
   inbox('order-check').hidden = !mail.id.startsWith('gmail-');
-  inbox('order-title').textContent = order?.status === 'verified' ? 'Sipariş eşleşti' : 'Sipariş kontrolü gerekli';
+  inbox('order-title').textContent = order?.status === 'verified' ? 'Sipariş eşleşti'
+    : order?.status === 'unmatched' ? 'Sipariş eşleşmedi' : 'Sipariş kontrolü gerekli';
   const record = order?.record;
   const dateLabel = value => value ? value.split('-').reverse().join('.') : 'Kayıt yok';
   inbox('order-summary').textContent = [
@@ -141,7 +142,13 @@ function renderInbox() {
   thread.replaceChildren(...active.turns.map(({employee, text}) => {
     const turn = document.createElement('p');
     turn.className = employee ? 'inbox-turn employee' : 'inbox-turn';
-    turn.textContent = (employee ? 'Sen' : 'Netle') + '\n' + text;
+    if (employee) {
+      turn.textContent = 'Sen\n' + text;
+    } else {
+      const heading = document.createElement('strong');
+      heading.textContent = 'NETLE';
+      turn.append(heading, '\n' + text);
+    }
     return turn;
   }));
   thread.scrollTop = thread.scrollHeight;
@@ -250,10 +257,8 @@ function openRefundMail(mail) {
     return;
   }
   const previousMessages = mail.messages?.slice(0, -1) || [];
-  const previousText = previousMessages.map(item => item.body).join('\n\n');
   const request = mail.followup
-    ? 'Konu: ' + mail.subject.slice(0, 300) + '\n\nÖnceki müşteri mesajları:\n' + previousText.slice(-4000)
-      + '\n\nSon müşteri mesajı:\n' + mail.body.slice(0, 7500)
+    ? (mail.body.trim() || mail.subject).slice(0, 12000)
     : mail.id.startsWith('gmail-') ? (mail.subject + '\n\n' + mail.body).slice(0, 12000) : mail.body;
   if (mail.followup) entry.turns.push({text: 'Müşterinin yeni mesajı bu vakaya eklendi.'});
   runInboxRequest(mail, {
