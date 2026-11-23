@@ -18,6 +18,7 @@ from netle import CREATE_CALLS
 from gmail_inbox import list_refund_mail
 from netle_mail import reply_status, send_reply, setup_sent_mail
 from netle_auth import account_action, employee, ensure_admin_from_env, setup
+from order_records import import_orders, inspect_inbox_orders, order_count, require_verified_order, setup_orders
 from company_documents import (approve as approve_document,
                                reject as reject_document,
                                list_documents, retrieve as retrieve_company_documents,
@@ -174,6 +175,13 @@ def reply(db_path, payload, employee_id=None):
         if employee_id is not None:
             if action == "start":
                 with db:
+                    message_id = payload.get("gmail_message_id")
+                    if message_id:
+                        setup_orders(db)
+                        record, _ = require_verified_order(db, employee_id, message_id)
+                        command["scenario"]["order_record"] = record
+                        db.execute("INSERT INTO order_refund_sessions VALUES (?, ?, ?)",
+                                   (session_id, message_id, json.dumps(record, ensure_ascii=False, sort_keys=True)))
                     db.execute("INSERT INTO employee_refunds VALUES (?, ?)", (session_id, employee_id))
             elif not db.execute(
                 "SELECT 1 FROM employee_refunds WHERE refund_id = ? AND employee_id = ?",
@@ -202,6 +210,11 @@ def reply(db_path, payload, employee_id=None):
                         command["facts"] = {key: value for key, value in prior.get("facts", {}).items()
                                             if value is not None and key != "teslimattan_sonra_gun"}
                         break
+        if action == "start" and command["scenario"].get("order_record"):
+            record = command["scenario"]["order_record"]
+            command["facts"].pop("teslimattan_sonra_gun", None)
+            if record["delivery_date"]:
+                command["facts"]["teslimattan_sonra_gun"] = (date.today() - date.fromisoformat(record["delivery_date"])).days
         if action in ("discuss", "revise"):
             state = graph.get_state(config).values
             if not state.get("scenario"):
@@ -265,6 +278,7 @@ def discuss(db, state, session_id, payload):
         raise ValueError("Sohbet bağlamı veya taslak izin verilen uzunluğu aşıyor.")
     context = json.dumps(
         {"customer_mail": state["scenario"]["ilk_istek"], "facts": state["facts"],
+         "verified_order": state["scenario"].get("order_record"),
          "employee_message": message, "recent_employee_notes": recent_notes,
          "current_draft": current_draft if revising else ""}, ensure_ascii=False,
     )
@@ -423,7 +437,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_content(200, "text/html; charset=utf-8", PAGE.read_bytes())
 
     def do_POST(self):
-        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/inbox", "/api/templates", "/api/admin/documents"):
+        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/inbox", "/api/templates", "/api/admin/documents", "/api/admin/orders"):
             self.send_error(404)
             return
         port = self.server.server_port
@@ -446,7 +460,21 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     account = employee(auth_db, cookie_header)
             status = 200
-            if self.path == "/api/admin/documents":
+            if self.path == "/api/admin/orders":
+                if account is None:
+                    status, result = 401, {"error": "Devam etmek için oturum aç."}
+                elif account[2] != "admin":
+                    status, result = 403, {"error": "Sipariş verilerini yalnızca yönetici yükleyebilir."}
+                else:
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        setup_orders(db)
+                        if payload.get("action") == "import":
+                            result = import_orders(db, payload.get("csv", ""))
+                        elif payload.get("action") == "status":
+                            result = {"total": order_count(db)}
+                        else:
+                            raise ValueError("Bilinmeyen sipariş işlemi.")
+            elif self.path == "/api/admin/documents":
                 if account is None:
                     status, result = 401, {"error": "Devam etmek için oturum aç."}
                 elif account[2] != "admin":
@@ -496,11 +524,28 @@ class Handler(BaseHTTPRequestHandler):
                     result = list_refund_mail(account[1])
                     with closing(sqlite3.connect(self.server.db_path)) as db:
                         setup_sent_mail(db)
+                        setup_orders(db)
+                        inspect_inbox_orders(db, account[0], result.get("mails", []))
                         for mail in result.get("mails", []):
                             if mail["thread"] and not mail.get("delivery_state"):
                                 mail["delivery_state"] = reply_status(db, account[0], mail["thread"]["message_id"])
                 elif self.path == "/api/mail":
                     with closing(sqlite3.connect(self.server.db_path)) as db:
+                        thread = payload.get("thread")
+                        if isinstance(thread, dict):
+                            setup_orders(db)
+                            parent = thread.get("message_id")
+                            linked = db.execute(
+                                "SELECT record_snapshot FROM order_refund_sessions WHERE refund_id = ? AND message_id = ?",
+                                (payload.get("session_id"), parent),
+                            ).fetchone()
+                            if not linked:
+                                raise ValueError("Yanıt göndermeden önce siparişi bu e-posta için doğrula.")
+                            record, sender = require_verified_order(db, account[0], parent)
+                            if json.loads(linked[0]) != record:
+                                raise ValueError("Sipariş kaydı değişti. Gelen mailleri yenileyip taslağı yeniden hazırla.")
+                            if payload.get("recipient", "").strip().casefold() != sender:
+                                raise ValueError("Alıcı, siparişle eşleşen gönderen adresi olmalı.")
                         result = send_reply(db, account[0], payload)
                 else:
                     result = template_action(self.server.db_path, payload)

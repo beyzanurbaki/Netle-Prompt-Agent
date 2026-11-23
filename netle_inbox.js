@@ -43,6 +43,10 @@ function mailVersion(mail) {
   return mail.thread?.message_id || mail.messages?.at(-1)?.id || mail.id;
 }
 
+function needsOrderCheck(mail) {
+  return mail.id.startsWith('gmail-') && mail.order_check?.status !== 'verified';
+}
+
 function mailCard(label, text, style) {
   const card = document.createElement('div');
   card.className = 'inbox-message ' + style;
@@ -68,6 +72,7 @@ function renderInbox() {
     const sent = entry?.sent || sample.delivery_state === 'sent';
     state.textContent = sent ? 'Gönderildi'
       : sample.delivery_state === 'uncertain' ? 'Gönderim belirsiz'
+      : needsOrderCheck(sample) ? 'Sipariş kontrolü gerekli'
       : entry?.busy ? 'İşleniyor' : entry?.error ? 'İşlem bekliyor'
       : entry?.hasDraft ? 'Taslak hazır' : entry?.questions ? 'Bilgi bekliyor'
       : entry?.readyForDraft || sample.followup ? 'Yanıt bekliyor' : 'Yeni';
@@ -89,6 +94,7 @@ function renderInbox() {
   updateResponseOptions(active);
   inbox('draft-empty').textContent = !active ? 'Yanıt hazırlamak için bir iade e-postası seç.'
     : active.sent ? 'Bu e-postaya yanıt gönderildi.'
+    : needsOrderCheck(mail) ? 'Taslak hazırlamak için sipariş doğrulanmalı.'
     : mail.delivery_state === 'uncertain' ? 'Gönderim sonucu belirsiz. Posta kutusunu kontrol et.'
     : active.error ? 'Sohbet panelindeki işlem durumunu kontrol et.'
     : active.busy ? 'Netle çalışıyor…'
@@ -102,6 +108,17 @@ function renderInbox() {
 
   inbox('subject').textContent = mail.subject;
   inbox('sender').textContent = mail.sender;
+  const order = mail.order_check;
+  inbox('order-check').hidden = !mail.id.startsWith('gmail-');
+  inbox('order-title').textContent = order?.status === 'verified' ? 'Sipariş eşleşti' : 'Sipariş kontrolü gerekli';
+  const record = order?.record;
+  const dateLabel = value => value ? value.split('-').reverse().join('.') : 'Kayıt yok';
+  inbox('order-summary').textContent = [
+    order?.message || 'Bu e-postanın sipariş bilgileri doğrulanamadı.',
+    ...(record ? [record.order_id + ' · ' + record.product,
+      'Satın alma: ' + dateLabel(record.purchase_date),
+      'Teslimat: ' + dateLabel(record.delivery_date)] : [])
+  ].join('\n');
   inbox('original').replaceChildren(mailCard('Müşteri mesajı', mail.body, 'customer'));
   const quoted = inbox('quoted');
   const quotedBody = inbox('quoted-body');
@@ -131,9 +148,9 @@ function renderInbox() {
   inbox('status').textContent = active.error || (active.busy ? 'Netle çalışıyor…' : '');
   inbox('status').className = active.error ? 'error' : '';
   inbox('retry').hidden = active.busy || !active.retry;
-  inbox('chat').hidden = !active.sessionId;
+  inbox('chat').hidden = !active.sessionId || needsOrderCheck(mail);
   inbox('revise').hidden = !active.hasDraft || active.employeeDraft;
-  inbox('answers').hidden = !active.questions;
+  inbox('answers').hidden = !active.questions || needsOrderCheck(mail);
   inbox('questions').replaceChildren(...Object.entries(active.questions || {}).map(([key, question]) => {
     const group = document.createElement('div');
     const field = document.createElement('label');
@@ -171,8 +188,10 @@ function renderInbox() {
     inbox(field).readOnly = active.busy || Boolean(active.sent);
   }
   if (mail.thread) inbox('reply-subject').readOnly = true;
+  if (mail.order_check?.status === 'verified') inbox('recipient').readOnly = true;
   const missingThread = mail.id.startsWith('gmail-') && !mail.thread;
-  inbox('send').disabled = active.busy || Boolean(active.sent) || missingThread || mail.delivery_state === 'uncertain';
+  inbox('send').disabled = active.busy || Boolean(active.sent) || missingThread || needsOrderCheck(mail)
+    || mail.delivery_state === 'uncertain';
   inbox('revise').disabled = active.busy || Boolean(active.sent);
   inbox('send-status').textContent = active.sendStatus || (missingThread
     ? 'Özgün e-postada zincir kimliği bulunamadığı için yanıt gönderilemiyor.'
@@ -180,7 +199,8 @@ function renderInbox() {
 }
 
 function updateResponseOptions(entry) {
-  inbox('draft-options').hidden = !entry?.sessionId || Boolean(entry.sent);
+  inbox('draft-options').hidden = !entry?.sessionId || Boolean(entry.sent)
+    || needsOrderCheck(selectedRefundMail);
   const type = entry?.responseType || 'suggested';
   const response = employeeResponses[type];
   const select = inbox('response-type');
@@ -210,18 +230,21 @@ function openRefundMail(mail) {
   selectedRefundMail = mail;
   const previous = refundCases.get(mail.id);
   const version = mailVersion(mail);
-  if (previous?.version === version) {
+  const orderBlocked = needsOrderCheck(mail);
+  const orderSnapshot = JSON.stringify(mail.order_check?.record ?? null);
+  if (previous?.version === version && previous.orderBlocked === orderBlocked
+      && previous.orderSnapshot === orderSnapshot) {
     renderInbox();
     return;
   }
   const entry = {
-    version, busy: false, turns: previous?.turns.slice() || [],
+    version, orderBlocked, orderSnapshot, busy: false, turns: previous?.turns.slice() || [],
     sources: [], answers: {}, message: '', draft: '', responseType: 'suggested', responseDetails: {},
     subject: /^re:/i.test(mail.subject) ? mail.subject : 'Re: ' + mail.subject,
-    recipient: mail.recipient
+    recipient: mail.order_check?.status === 'verified' ? mail.sender_address : mail.recipient
   };
   refundCases.set(mail.id, entry);
-  if (mail.delivery_state) {
+  if (mail.delivery_state || orderBlocked) {
     entry.sent = mail.delivery_state === 'sent';
     renderInbox();
     return;
@@ -235,6 +258,7 @@ function openRefundMail(mail) {
   if (mail.followup) entry.turns.push({text: 'Müşterinin yeni mesajı bu vakaya eklendi.'});
   runInboxRequest(mail, {
     action: 'start', request, defer_draft: true, followup: Boolean(mail.followup),
+    gmail_message_id: mail.thread?.message_id,
     previous_message_ids: previousMessages.map(item => item.thread?.message_id).filter(Boolean)
   });
 }
@@ -423,7 +447,7 @@ inbox('draft-panel').addEventListener('submit', async event => {
   event.preventDefault();
   const mail = selectedRefundMail;
   const entry = mail && refundCases.get(mail.id);
-  if (!entry?.hasDraft || entry.busy || entry.sent || mail.delivery_state === 'uncertain'
+  if (!entry?.hasDraft || entry.busy || entry.sent || needsOrderCheck(mail) || mail.delivery_state === 'uncertain'
       || (mail.id.startsWith('gmail-') && !mail.thread)) return;
   entry.busy = true;
   entry.sendStatus = 'E-posta gönderiliyor…';

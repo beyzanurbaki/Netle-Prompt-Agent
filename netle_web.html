@@ -48,7 +48,7 @@
     .document-status { color: #425d53; }
     #admin-documents pre { white-space: pre-wrap; overflow-wrap: anywhere; }
     body.password-only header, body.password-only #employee-work,
-    body.password-only #admin-documents, body.password-only #employee-reset-form,
+    body.password-only #admin-documents, body.password-only #admin-orders, body.password-only #employee-reset-form,
     body.password-only #account-form, body.password-only #account-status { display: none; }
     body.password-only main { max-width: 520px; padding-top: clamp(48px, 12vh, 120px); }
     table { width: 100%; border-collapse: collapse; text-align: left; }
@@ -117,6 +117,17 @@
     <button id="password-cancel" type="button">Vazgeç</button>
   </form>
   <p id="password-status" role="status"></p>
+  <section id="admin-orders" hidden>
+    <h2>Sipariş kayıtları</h2>
+    <p>Şirketin sipariş dışa aktarımını CSV olarak yükle. Aynı sipariş numarası yeniden yüklenirse kayıt güncellenir.</p>
+    <form id="order-import-form">
+      <div class="field"><label for="order-file">Sipariş dosyası (UTF-8 CSV, en fazla 2 MB)</label><input id="order-file" type="file" accept=".csv,text/csv" required></div>
+      <p><code>order_id,customer_email,product,purchase_date,delivery_date</code></p>
+      <p>Tarihleri YYYY-AA-GG biçiminde yaz. Teslimat kaydı yoksa son alan boş kalabilir.</p>
+      <button type="submit">Siparişleri yükle</button>
+    </form>
+    <p id="order-import-status" role="status"></p>
+  </section>
   <section id="admin-documents" hidden>
     <h2>Şirket belgeleri</h2>
     <p>Yüklenen dosyalar taslak üretiminde kullanılmadan önce yönetici onayından geçer. Aynı başlıktaki yeni sürüm onaylanınca eski sürüm aramadan çıkarılır.</p>
@@ -157,6 +168,10 @@
       <div id="inbox-case" hidden>
         <strong id="inbox-subject"></strong>
         <p id="inbox-sender" class="inbox-meta"></p>
+        <div id="inbox-order-check" class="inbox-message" hidden>
+          <strong id="inbox-order-title">Sipariş doğrulaması</strong>
+          <div id="inbox-order-summary"></div>
+        </div>
         <div id="inbox-original"></div>
         <p id="inbox-attachments" class="inbox-meta" hidden></p>
         <details id="inbox-quoted" hidden>
@@ -592,6 +607,7 @@
     document.querySelector('#account-menu').hidden = !username;
     document.querySelector('#employee-name').textContent = username ?? '';
     document.querySelector('#admin-documents').hidden = !isAdmin;
+    document.querySelector('#admin-orders').hidden = !isAdmin;
     resetForm.hidden = !isAdmin;
     if (!isAdmin) {
       resetForm.reset();
@@ -605,6 +621,8 @@
       document.querySelector('#account-dropdown').hidden = true;
       document.querySelector('#employee-name').setAttribute('aria-expanded', 'false');
       document.querySelector('#document-upload-form').reset();
+      document.querySelector('#order-import-form').reset();
+      document.querySelector('#order-import-status').textContent = '';
       document.querySelector('#document-status').textContent = '';
       document.querySelector('#document-list').replaceChildren();
     }
@@ -650,7 +668,7 @@
   async function refreshWorkspace() {
     if (currentRole === 'admin') {
       try {
-        await refreshDocuments();
+        await Promise.all([refreshDocuments(), refreshOrderCount()]);
       } catch (error) {
         document.querySelector('#document-status').textContent = error.message;
       }
@@ -658,6 +676,39 @@
       await Promise.all([refreshTemplates(), refreshInbox()]);
     }
   }
+
+  async function refreshOrderCount() {
+    const status = document.querySelector('#order-import-status');
+    try {
+      const {total} = await post('/api/admin/orders', {action: 'status'});
+      status.textContent = 'Kayıtlı sipariş sayısı: ' + total;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  }
+
+  document.querySelector('#order-import-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (busy || currentRole !== 'admin') return;
+    const form = event.currentTarget;
+    const file = document.querySelector('#order-file').files[0];
+    const status = document.querySelector('#order-import-status');
+    if (!file || file.size > 2000000) {
+      status.textContent = 'En fazla 2 MB boyutunda bir CSV dosyası seç.';
+      return;
+    }
+    setBusy(true);
+    try {
+      const csv = await file.text();
+      const {imported, total} = await post('/api/admin/orders', {action: 'import', csv});
+      form.reset();
+      status.textContent = imported + ' sipariş işlendi. Toplam kayıt: ' + total;
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      setBusy(false);
+    }
+  });
 
   async function refreshDocuments() {
     if (currentRole !== 'admin') return;
