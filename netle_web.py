@@ -18,21 +18,18 @@ from netle import CREATE_CALLS
 from gmail_inbox import list_refund_mail
 from netle_mail import reply_status, send_reply, setup_sent_mail
 from netle_auth import account_action, employee, ensure_admin_from_env, setup
-from order_records import import_orders, inspect_inbox_orders, order_count, require_verified_order, setup_orders
+from order_records import (
+    correction_draft, import_orders, inbox_order_check, inspect_inbox_orders,
+    order_count, parse_order_date, setup_orders, stored_order_date,
+)
 from company_documents import (approve as approve_document,
                                reject as reject_document,
                                list_documents, retrieve as retrieve_company_documents,
                                setup as setup_documents, upload as upload_document)
 from refund_demo import chat
 from refund_graph import (
-    CUSTOMER_MESSAGE_RULE, QUESTIONS, build_prompt, customer_message, delivery_date_unknown, make_graph,
+    CUSTOMER_MESSAGE_RULE, QUESTIONS, customer_message, delivery_date_unknown, make_graph,
 )
-from refund_template import (
-    CREATE_TEMPLATES, DAMAGE, HYGIENE, NAME, TEMPLATES, approve_template,
-    approved_template, current_sources, proposal,
-)
-
-
 PAGE = Path(__file__).with_name("netle_web.html")
 INBOX_SCRIPT = PAGE.with_name("netle_inbox.js")
 FLOW_LABELS = {"standard": "Standart iade", "damage": "Hasarlı teslimat",
@@ -142,6 +139,30 @@ def intake(request):
     return flow, facts
 
 
+def inbox_customer_facts(messages):
+    flow = None
+    facts = {}
+    for mail in messages:
+        request = mail["subject"] + "\n" + mail["body"]
+        try:
+            detected_flow, detected = intake(request)
+        except IntakeError:
+            detected_flow = None
+            detected = extract_facts(request.translate(str.maketrans({"I": "ı", "İ": "i"})).lower())
+        if detected_flow and (flow is None or detected_flow != "standard"):
+            flow = detected_flow
+        facts.update({key: value for key, value in detected.items() if value is not None})
+        for filename in mail["attachments"]:
+            if not filename or not re.search(r"\.(?:jpe?g|png|webp|heic)$", filename, re.I):
+                continue
+            name = filename.casefold()
+            if re.search(r"ambalaj|paket", name):
+                facts["ambalaj_fotografi_var"] = True
+            elif re.search(r"ürün|urun|hasar", name):
+                facts["urun_fotografi_var"] = True
+    return flow, facts
+
+
 def reply(db_path, payload, employee_id=None):
     action = payload.get("action")
     if action == "start":
@@ -149,7 +170,10 @@ def reply(db_path, payload, employee_id=None):
         if not request or len(request) > 12000:
             raise ValueError("İade isteği 1–12000 karakter arasında olmalı.")
         followup = payload.get("followup") is True
-        flow, facts = ("standard", {}) if followup else intake(request)
+        gmail_message_id = payload.get("gmail_message_id") if employee_id is not None else None
+        if not gmail_message_id:
+            raise ValueError("İade vakası için gelen kutusundan bir Gmail iletisi seç.")
+        flow, facts = "standard", {}
         session_id = uuid4().hex
         command = {
             "session_id": session_id,
@@ -178,8 +202,24 @@ def reply(db_path, payload, employee_id=None):
                     message_id = payload.get("gmail_message_id")
                     if message_id:
                         setup_orders(db)
-                        record, _ = require_verified_order(db, employee_id, message_id)
+                        check, claims = inbox_order_check(db, employee_id, message_id)
+                        correction = correction_draft(check, claims)
+                        if correction and claims["sender"]:
+                            db.execute("INSERT INTO employee_refunds VALUES (?, ?)", (session_id, employee_id))
+                            db.execute("INSERT INTO order_refund_sessions VALUES (?, ?, ?)",
+                                       (session_id, message_id, json.dumps({"correction": correction})))
+                            return {"session_id": session_id, "draft": correction, "sources": [],
+                                    "correction_only": True}
+                        if check["status"] != "verified":
+                            raise ValueError(check["message"])
+                        record = check["record"]
                         command["scenario"]["order_record"] = record
+                        detected_flow, customer_facts = inbox_customer_facts(claims.get("customer_messages", []))
+                        if not followup and not detected_flow:
+                            detected_flow, customer_facts = intake(request)
+                        if detected_flow:
+                            command["flow"] = detected_flow
+                        command["facts"].update(customer_facts)
                         db.execute("INSERT INTO order_refund_sessions VALUES (?, ?, ?)",
                                    (session_id, message_id, json.dumps(record, ensure_ascii=False, sort_keys=True)))
                     db.execute("INSERT INTO employee_refunds VALUES (?, ?)", (session_id, employee_id))
@@ -206,15 +246,20 @@ def reply(db_path, payload, employee_id=None):
                 if previous:
                     prior = graph.get_state({"configurable": {"thread_id": previous[0]}}).values
                     if prior:
-                        command["flow"] = prior.get("flow", "standard")
-                        command["facts"] = {key: value for key, value in prior.get("facts", {}).items()
-                                            if value is not None and key != "teslimattan_sonra_gun"}
+                        if command["flow"] == "standard":
+                            command["flow"] = prior.get("flow", "standard")
+                        command["facts"] = {
+                            **{key: value for key, value in prior.get("facts", {}).items()
+                               if value is not None and key != "teslimattan_sonra_gun"},
+                            **command["facts"],
+                        }
                         break
         if action == "start" and command["scenario"].get("order_record"):
             record = command["scenario"]["order_record"]
+            command["facts"]["siparis_no_var"] = True
             command["facts"].pop("teslimattan_sonra_gun", None)
             if record["delivery_date"]:
-                command["facts"]["teslimattan_sonra_gun"] = (date.today() - date.fromisoformat(record["delivery_date"])).days
+                command["facts"]["teslimattan_sonra_gun"] = (date.today() - parse_order_date(record["delivery_date"])).days
         if action in ("discuss", "revise"):
             state = graph.get_state(config).values
             if not state.get("scenario"):
@@ -329,93 +374,6 @@ def present(db, result, session_id):
             "usage": usage(db, session_id)}
 
 
-STANDARD_TEMPLATE_FIELDS = {
-    "days": "Teslimattan geçen gün",
-    "kullanildi": "Ürün kullanıldı mı?",
-    "aksesuarlar_tam": "Aksesuarlar eksiksiz mi?",
-}
-TEMPLATE_FIELDS = {
-    NAME: {**STANDARD_TEMPLATE_FIELDS, "kutu_acik": "Kutu açıldı mı?"},
-    DAMAGE: {
-        "siparis_no_var": "Sipariş numarası elinizde mi?",
-        "urun_fotografi_var": "Hasarlı ürünün fotoğrafı elinizde mi?",
-        "ambalaj_fotografi_var": "Dış ambalajın fotoğrafı elinizde mi?",
-    },
-    HYGIENE: {"hijyen_muhru_acik": "Hijyen mührü açıldı mı?", **STANDARD_TEMPLATE_FIELDS},
-}
-TEMPLATE_LABELS = {NAME: "Standart iade", DAMAGE: "Hasarlı teslimat", HYGIENE: "Hijyen mühürlü ürün"}
-
-
-def template_action(db_path, payload):
-    action = payload.get("action")
-    if action == "preview":
-        name = payload.get("name", NAME)
-        with closing(sqlite3.connect(db_path)) as db:
-            setup_documents(db)
-            approval_id, sources_json = proposal(name, db)
-            return {"approval_id": approval_id, "name": name, "prompt": TEMPLATES[name],
-                    "sources": [source_label(item) for item in json.loads(sources_json)]}
-    with closing(sqlite3.connect(db_path)) as db:
-        db.execute(CREATE_TEMPLATES)
-        if action == "list":
-            sources = {}
-            for name in TEMPLATES:
-                try:
-                    sources[name] = current_sources(name, db)
-                except (ValueError, OSError):
-                    sources[name] = None
-            return {"templates": [
-                {"approval_id": key, "name": name, "approved_at": approved_at,
-                 "label": TEMPLATE_LABELS.get(name, name),
-                 "fields": TEMPLATE_FIELDS.get(name, {}),
-                 "available": json.loads(stored) == sources.get(name)}
-                for key, name, approved_at, stored in db.execute(
-                    "SELECT approval_id, name, approved_at, sources_json FROM prompt_templates "
-                    "ORDER BY approved_at DESC, approval_id"
-                )
-            ]}
-        if action == "approve":
-            approve_template(db, payload["approval_id"], payload.get("name", NAME))
-            return {"approved": True}
-        if action != "use":
-            raise ValueError("Bilinmeyen şablon işlemi.")
-
-        name, template, _ = approved_template(db, payload["approval_id"])
-        fields = TEMPLATE_FIELDS[name]
-        product = payload.get("product", "").strip()
-        days = payload.get("days") if "days" in fields else None
-        if not product or len(product) > 120 or len(product.splitlines()) != 1:
-            raise ValueError("Ürün adı 1–120 karakter ve tek satır olmalı.")
-        if days is not None and (type(days) is not int or not 0 <= days <= 9999):
-            raise ValueError("Gün sayısı 0–9999 arasında bir tam sayı olmalı.")
-        facts = {"urun": product, "teslimattan_sonra_gun": days}
-        labels = {True: "Evet", False: "Hayır", None: "Bilinmiyor"}
-        answers = {"urun": product, "teslimattan_sonra_gun": days if days is not None else "Bilinmiyor"}
-        for field in fields:
-            if field == "days":
-                continue
-            value = payload.get(field)
-            if value is not None and type(value) is not bool:
-                raise ValueError("Ürün bilgileri için Evet, Hayır veya Bilinmiyor seç.")
-            facts[field] = value
-            answers[field] = labels[value]
-        prompt = template.format_map(answers)
-        run_id = uuid4().hex
-        db.execute(CREATE_CALLS)
-        doc_chunks = retrieve_company_documents(db, run_id, "embeddinggemma:latest", prompt)
-        sources = [asdict(chunk) for chunk in doc_chunks]
-        prompt = build_prompt({"scenario": {"ilk_istek": prompt}, "facts": facts,
-                               "sources": sources})["prompt"]
-        draft = chat(
-            db, run_id, "qwen2.5:1.5b", "template_generate_draft",
-            CUSTOMER_MESSAGE_RULE + " Yanıtı yalnızca verilen onaylı belge kanıtlarına dayandır.",
-            prompt,
-        )
-        return {"flow": TEMPLATE_LABELS[name], "draft": customer_message(draft),
-                "prompt": prompt, "sources": [source_label(item) for item in sources],
-                "usage": usage(db, run_id), "session_id": run_id}
-
-
 class Handler(BaseHTTPRequestHandler):
     def send_content(self, status, content_type, body, set_cookie=None):
         self.send_response(status)
@@ -437,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_content(200, "text/html; charset=utf-8", PAGE.read_bytes())
 
     def do_POST(self):
-        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/inbox", "/api/templates", "/api/admin/documents", "/api/admin/orders"):
+        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/inbox", "/api/admin/documents", "/api/admin/orders"):
             self.send_error(404)
             return
         port = self.server.server_port
@@ -532,8 +490,15 @@ class Handler(BaseHTTPRequestHandler):
                 elif self.path == "/api/mail":
                     with closing(sqlite3.connect(self.server.db_path)) as db:
                         thread = payload.get("thread")
+                        setup_orders(db)
+                        linked_parent = db.execute(
+                            "SELECT message_id FROM order_refund_sessions WHERE refund_id = ?",
+                            (payload.get("session_id"),),
+                        ).fetchone()
+                        if linked_parent and (not isinstance(thread, dict)
+                                              or thread.get("message_id") != linked_parent[0]):
+                            raise ValueError("Yanıt özgün e-posta zincirine bağlanmalı.")
                         if isinstance(thread, dict):
-                            setup_orders(db)
                             parent = thread.get("message_id")
                             linked = db.execute(
                                 "SELECT record_snapshot FROM order_refund_sessions WHERE refund_id = ? AND message_id = ?",
@@ -541,14 +506,20 @@ class Handler(BaseHTTPRequestHandler):
                             ).fetchone()
                             if not linked:
                                 raise ValueError("Yanıt göndermeden önce siparişi bu e-posta için doğrula.")
-                            record, sender = require_verified_order(db, account[0], parent)
-                            if json.loads(linked[0]) != record:
-                                raise ValueError("Sipariş kaydı değişti. Gelen mailleri yenileyip taslağı yeniden hazırla.")
-                            if payload.get("recipient", "").strip().casefold() != sender:
-                                raise ValueError("Alıcı, siparişle eşleşen gönderen adresi olmalı.")
+                            check, claims = inbox_order_check(db, account[0], parent)
+                            snapshot = json.loads(linked[0])
+                            if "correction" in snapshot:
+                                current = correction_draft(check, claims)
+                                if current != snapshot["correction"] or payload.get("body", "").strip() != current:
+                                    raise ValueError("Düzeltme taslağı değişti. Gelen mailleri yenileyip yeniden hazırla.")
+                            else:
+                                for field in ("purchase_date", "delivery_date"):
+                                    snapshot[field] = stored_order_date(snapshot[field])
+                                if check["status"] != "verified" or snapshot != check["record"]:
+                                    raise ValueError("Sipariş kaydı değişti. Gelen mailleri yenileyip taslağı yeniden hazırla.")
+                            if payload.get("recipient", "").strip().casefold() != claims["sender"]:
+                                raise ValueError("Alıcı, özgün e-postanın gönderen adresi olmalı.")
                         result = send_reply(db, account[0], payload)
-                else:
-                    result = template_action(self.server.db_path, payload)
         except IntakeError as error:
             status, result = 400, {"error": str(error), "code": error.code}
         except (ValueError, TypeError, AttributeError, KeyError) as error:

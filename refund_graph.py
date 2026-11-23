@@ -146,7 +146,27 @@ def customer_withdrew_return(scenario):
     ) is not None
 
 
+def missing_customer_details(state):
+    if not state["scenario"].get("order_record") or customer_withdrew_return(state["scenario"]):
+        return []
+    facts = state["facts"]
+    if state.get("flow") == "damage":
+        return [text for field, text in (
+            ("urun_fotografi_var", "Hasarı gösteren ürün fotoğrafı"),
+            ("ambalaj_fotografi_var", "Dış ambalajın fotoğrafı"),
+        ) if facts.get(field) is not True]
+    labels = {
+        "teslimattan_sonra_gun": "Ürünü teslim aldığınız tarih (gün/ay/yıl)",
+        "kullanildi": "Ürünü kullanıp kullanmadığınız",
+        "aksesuarlar_tam": "Aksesuarların eksiksiz olup olmadığı",
+        "hijyen_muhru_acik": "Hijyen mührünün açılıp açılmadığı",
+    }
+    return [labels[field] for field in missing_fields(state) if field in labels]
+
+
 def build_prompt(state):
+    if missing_customer_details(state):
+        return {"prompt": "", "reason": "Müşteriden eksik bilgiler istenecek."}
     if customer_withdrew_return(state["scenario"]):
         return {"prompt": "", "reason": "Müşteri iade talebinden vazgeçtiğini bildirdi."}
     facts = state["facts"]
@@ -196,13 +216,20 @@ def make_graph(db, saver):
     setup_documents(db)
 
     def retrieve(state):
-        if customer_withdrew_return(state["scenario"]):
+        if customer_withdrew_return(state["scenario"]) or missing_customer_details(state):
             return {"sources": []}
         query = f"{state['scenario']['ilk_istek']}\n{json.dumps(state['facts'], ensure_ascii=False)}"
         chunks = retrieve_company_documents(db, state["session_id"], state["embed_model"], query)
         return {"sources": [asdict(chunk) for chunk in chunks]}
 
     def generate(state):
+        missing = missing_customer_details(state)
+        if missing:
+            details = "\n".join("- " + detail for detail in missing)
+            return {"draft": (
+                "Merhaba,\n\nİade talebinizi inceleyebilmemiz için şu bilgileri paylaşabilir misiniz?"
+                f"\n\n{details}\n\nTeşekkür ederiz."
+            ), "sources": []}
         if customer_withdrew_return(state["scenario"]):
             return {"draft": (
                 "Merhaba,\n\nİade talebinize devam etmek istemediğinizi anladık. "
@@ -235,7 +262,8 @@ def make_graph(db, saver):
             return "retrieve"
         if state.get("flow") == "possible_damage":
             return "confirm_damage"
-        if state.get("flow") == "hygiene" and state["facts"].get("hijyen_muhru_acik") is None:
+        if (state.get("flow") == "hygiene" and not state["scenario"].get("order_record")
+                and state["facts"].get("hijyen_muhru_acik") is None):
             return "clarify_seal"
         return "retrieve"
 
@@ -243,13 +271,15 @@ def make_graph(db, saver):
                                 ["confirm_damage", "clarify_seal", "retrieve"])
     graph.add_edge("confirm_damage", "retrieve")
     graph.add_edge("clarify_seal", "retrieve")
-    graph.add_conditional_edges("retrieve", lambda state: not state["scenario"].get("followup") and bool(missing_fields(state)),
+    graph.add_conditional_edges("retrieve", lambda state: not state["scenario"].get("followup")
+                                and not missing_customer_details(state) and bool(missing_fields(state)),
                                 {True: "clarify", False: "build_prompt"})
     graph.add_edge("clarify", "build_prompt")
     graph.add_conditional_edges(
         "build_prompt",
         lambda state: bool(state.get("defer_draft")) and (
-            state["scenario"].get("followup") or not delivery_date_unknown(state["facts"])
+            state["scenario"].get("followup") or bool(missing_customer_details(state))
+            or not delivery_date_unknown(state["facts"])
         ),
         {True: "await_draft", False: "generate"},
     )

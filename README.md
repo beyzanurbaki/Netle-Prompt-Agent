@@ -18,7 +18,7 @@ python -m venv .venv
 
 `.env` dosyasında `NETLE_ADMIN_USERNAME` ve `NETLE_ADMIN_PASSWORD` alanlarını belirle. Uygulama açıldığında bu bilgilerle yönetici hesabı oluşturulur veya güncellenir; sonraki kayıtlar çalışan hesabı olur. `.env` Git'e eklenmez. Yönetici hesabı **Şirket belgeleri** bölümünden PDF, DOCX, TXT veya MD dosyalarını yükleyebilir. Dosyanın metni incelendikten ve yönetici onayladıktan sonra belge RAG aramasında etkinleşir. Aynı başlıkta yeni içerik yüklenirse eski ve yeni metin karşılaştırma için gösterilir; yeni sürüm ancak onayla etkinleşir. Önceki sürümler SQLite'ta arşivlenir.
 
-Üretim arayüzündeki iade taslakları ve prompt şablonları yalnızca etkin, yönetici onaylı dosyalardan getirilen pasajları kullanır. Onaylı belge yoksa veya ilgili bilgi bulunamazsa taslak oluşturulmaz. Orijinal dosya, çıkarılan metin ve sürüm geçmişi yerel `netle.sqlite3` veritabanında saklanır. PDF metin içermelidir; taranmış belge için OCR henüz desteklenmiyor. İlk dosya yüklemesinden önce `pip install -r requirements.txt` komutuyla PDF kitaplığı kurulur.
+İade kararı içeren müşteri taslakları yalnızca etkin, yönetici onaylı dosyalardan getirilen pasajları kullanır. Onaylı belge yoksa veya ilgili bilgi bulunamazsa taslak oluşturulmaz. Orijinal dosya, çıkarılan metin ve sürüm geçmişi yerel `netle.sqlite3` veritabanında saklanır. PDF metin içermelidir; taranmış belge için OCR henüz desteklenmiyor. İlk dosya yüklemesinden önce `pip install -r requirements.txt` komutuyla PDF kitaplığı kurulur.
 
 Hesaplar, roller ve oturumlar SQLite'ta saklanır. Yerel pilotun kayıt ekranı şirket kimlik sağlayıcısıyla bağlantı kurmaz.
 
@@ -49,7 +49,7 @@ NETLE_SMTP_USER=destek@sirketiniz.example
 NETLE_SMTP_PASSWORD=
 ```
 
-Sunucu örtük TLS kullanıyorsa `NETLE_SMTP_TLS=ssl` ve sağlayıcının belirttiği portu (genellikle 465) kullan. Kimlik doğrulama gerektirmeyen yetkili bir rölede kullanıcı adı ve parola boş kalabilir. Örnek maillerin `example.test` adresleri teslimat için kullanılamaz. Gönderimi denerken **Alıcı** alanına kontrol ettiğin gerçek bir adres gir.
+Sunucu örtük TLS kullanıyorsa `NETLE_SMTP_TLS=ssl` ve sağlayıcının belirttiği portu (genellikle 465) kullan. Kimlik doğrulama gerektirmeyen yetkili bir rölede kullanıcı adı ve parola boş kalabilir. Gönderimi denerken denetiminde olan bir Gmail hesabından test iletisi gönder.
 
 ## Demo
 
@@ -59,8 +59,6 @@ Sunucu örtük TLS kullanıyorsa `NETLE_SMTP_TLS=ssl` ve sağlayıcının belirt
 | “Vazo kırık geldi.” | Yalnızca onaylı belgelerde dayanağı varsa hasarlı teslimat için taslak üretir. |
 | “İlgili bir iade kuralı bulunmayan ürün.” | Kaynak eşleşmesi yeterli değilse taslak oluşturmaz. |
 
-**Prompt ve kaynaklar** ile **Token ve süre ölçümleri** müşteri taslağından ayrı gösterilir. **Prompt şablonları** bölümünden standart iade, hasarlı teslimat veya hijyen mühürlü ürün şablonunu seçip önizleyebilir ve onaylayabilirsin. Onaylı şablonlar yeni ürünlerle tekrar kullanılabilir. Her şablonun onayı kendi kaynak sürümleriyle birlikte kaydedilir.
-
 ## Ders kavramları uygulamada
 
 | Kavram | Netle’deki karşılığı |
@@ -68,7 +66,7 @@ Sunucu örtük TLS kullanıyorsa `NETLE_SMTP_TLS=ssl` ve sağlayıcının belirt
 | RAG ve embedding | Yönetici onaylı dosyaların metin bölümleri Ollama ile vektörlere dönüştürülür ve kosinüs benzerliğiyle sıralanır. Belge vektörleri, içerik veya embedding modeli değişene kadar SQLite'tan yeniden kullanılır. |
 | Ajan akışı ve LangGraph | Açık ifadelerden iade türü seçilir. Eksik bilgi varsa akış durur ve kullanıcı yanıtıyla aynı oturumdan devam eder. |
 | Prompt iyileştirme ve yerel LLM | İlgili politika, bilinen bilgiler ve beklenen karar bir görev promptuna dönüştürülür. Ollama müşteri mesajı üretir. |
-| İnsan onayı ve ölçüm | Şablonlar kullanıcı onayıyla kaydedilir. Girdi ve çıktı tokenları ile çağrı süreleri SQLite'ta izlenir. |
+| İnsan onayı ve ölçüm | Müşteri taslağı çalışan tarafından incelenip gönderilir. Girdi ve çıktı tokenları ile çağrı süreleri SQLite'ta izlenir. |
 
 ## Önceki demo ölçümü
 

@@ -51,6 +51,11 @@ def setup_orders(db):
                 SELECT o.order_id, o.customer_email, p.products_id, o.purchase_date, o.delivery_date
                 FROM legacy_order_records AS o JOIN products AS p ON p.products_name = o.product""")
             db.execute("DROP TABLE legacy_order_records")
+        for column in ("purchase_date", "delivery_date"):
+            db.execute(f"""UPDATE order_records
+                SET {column} = substr({column}, 9, 2) || '.' ||
+                    substr({column}, 6, 2) || '.' || substr({column}, 1, 4)
+                WHERE {column} GLOB '????-??-??'""")
     except Exception:
         db.execute("ROLLBACK TO setup_order_products")
         raise
@@ -65,10 +70,17 @@ def setup_orders(db):
     )""")
 
 
-def iso_date(value):
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-        raise ValueError
-    return date.fromisoformat(value)
+def parse_order_date(value):
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return date.fromisoformat(value)
+    if re.fullmatch(r"\d{1,2}[./]\d{1,2}[./]\d{4}", value):
+        day, month, year = map(int, re.split(r"[./]", value))
+        return date(year, month, day)
+    raise ValueError("Geçersiz sipariş tarihi.")
+
+
+def stored_order_date(value):
+    return parse_order_date(value).strftime("%d.%m.%Y") if value else ""
 
 
 def import_orders(db, content):
@@ -89,10 +101,10 @@ def import_orders(db, content):
             if (None in line or not ORDER_ID.fullmatch(order_id) or order_id in rows
                     or len(email) > 254 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)
                     or not product or len(product) > 250
-                    or iso_date(purchased) > date.today()
-                    or (delivered and not iso_date(purchased) <= iso_date(delivered) <= date.today())):
+                    or parse_order_date(purchased) > date.today()
+                    or (delivered and not parse_order_date(purchased) <= parse_order_date(delivered) <= date.today())):
                 raise ValueError
-            rows[order_id] = (order_id, email, product, purchased, delivered)
+            rows[order_id] = (order_id, email, product, stored_order_date(purchased), stored_order_date(delivered))
     except (ValueError, AttributeError, csv.Error):
         raise ValueError(f"CSV satır {reader.line_num} geçersiz veya yinelenen sipariş numarası içeriyor.") from None
     if not rows:
@@ -122,10 +134,7 @@ def claimed_dates(pattern, text):
     for match in pattern.finditer(normalized(text)):
         value = match[1] or match[2]
         try:
-            if "-" not in value:
-                day, month, year = map(int, re.split(r"[./]", value))
-                value = date(year, month, day).isoformat()
-            dates.add(iso_date(value).isoformat())
+            dates.add(stored_order_date(value))
         except ValueError:
             continue
     return dates
@@ -166,9 +175,9 @@ def verify_order(db, claims):
         return {"status": "unmatched", "message": "Sipariş numarası ve gönderen adresi kayıtlarla eşleşmedi."}
     record = dict(zip(("order_id", "product", "purchase_date", "delivery_date"), row))
     differences = []
-    if claims.get("purchase_dates") and set(claims["purchase_dates"]) != {record["purchase_date"]}:
+    if claims.get("purchase_dates") and {stored_order_date(value) for value in claims["purchase_dates"]} != {stored_order_date(record["purchase_date"])}:
         differences.append("Müşterinin belirttiği satın alma tarihi sipariş kaydından farklı.")
-    if claims["delivery_dates"] and record["delivery_date"] and set(claims["delivery_dates"]) != {record["delivery_date"]}:
+    if claims["delivery_dates"] and record["delivery_date"] and {stored_order_date(value) for value in claims["delivery_dates"]} != {stored_order_date(record["delivery_date"])}:
         differences.append("Müşterinin belirttiği teslim tarihi sipariş kaydından farklı.")
     if claims["products"] and set(claims["products"]) != {normalized(record["product"])}:
         differences.append("Müşterinin belirttiği ürün sipariş kaydındaki ürün adıyla eşleşmiyor.")
@@ -183,19 +192,45 @@ def inspect_inbox_orders(db, employee_id, mails):
                 continue
             message_id = mail["thread"]["message_id"]
             claims = mail_claims(mail)
+            claims["customer_messages"] = [
+                {"subject": item["subject"][:300], "body": item["body"][:12000],
+                 "attachments": item.get("attachments", [])}
+                for item in mail.get("messages", [mail])
+                if item["sender_address"].casefold() == claims["sender"]
+            ]
             mail["order_check"] = verify_order(db, claims)
             db.execute("""INSERT INTO order_mail_evidence VALUES (?, ?, ?)
                 ON CONFLICT(employee_id, message_id) DO UPDATE SET claims=excluded.claims""",
                        (employee_id, message_id, json.dumps(claims, ensure_ascii=False)))
 
 
-def require_verified_order(db, employee_id, message_id):
+def correction_draft(check, claims):
+    if check["status"] == "unmatched":
+        detail = (
+            "Sipariş numaranızı bu e-postaya yanıt vererek paylaşabilir misiniz?"
+            if len(claims["order_ids"]) != 1 else
+            "Sipariş numaranızı kontrol edip siparişte kullanılan e-posta adresinden "
+            "bize tekrar yazabilir misiniz?"
+        )
+    elif check["status"] == "review":
+        detail = "Paylaştığınız ürün veya tarih bilgilerinde uyuşmazlık var. "
+        detail += "Bu bilgileri kontrol edip doğru bilgileri paylaşabilir misiniz?"
+    else:
+        return None
+    return "Merhaba,\n\n" + detail + "\n\nTeşekkür ederiz."
+
+
+def inbox_order_check(db, employee_id, message_id):
     row = db.execute("SELECT claims FROM order_mail_evidence WHERE employee_id = ? AND message_id = ?",
                      (employee_id, message_id)).fetchone()
     if not row:
         raise ValueError("Sipariş kontrolü için gelen mailleri yenile.")
     claims = json.loads(row[0])
-    result = verify_order(db, claims)
+    return verify_order(db, claims), claims
+
+
+def require_verified_order(db, employee_id, message_id):
+    result, claims = inbox_order_check(db, employee_id, message_id)
     if result["status"] != "verified":
         raise ValueError(result["message"])
     return result["record"], claims["sender"]

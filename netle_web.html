@@ -32,16 +32,8 @@
     :focus-visible { outline: 3px solid #4e8c69; outline-offset: 3px; }
     .field { margin-bottom: 12px; }
     h2 { margin: 0 0 12px; font-size: 1.25rem; }
-    #status { min-height: 1.6em; color: #425d53; }
-    #status.error { color: #980f21; }
     details { margin-top: 16px; }
     summary { cursor: pointer; font-weight: 650; }
-    #prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
-    #template-prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
-    .template-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-    .template-fields input, .template-fields select { margin-top: 6px; }
-    .template-fields label[hidden] { display: none; }
-    .measurements { overflow-x: auto; }
     .document-version { border-top: 1px solid #d8e1d6; padding-top: 12px; margin-top: 12px; }
     .document-version p { margin: 5px 0; }
     .document-text { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -57,6 +49,9 @@
     .inbox-grid { display: grid; grid-template-columns: minmax(215px, 1fr) minmax(0, 2fr) minmax(280px, 1.35fr); gap: 14px; align-items: stretch; }
     .inbox-grid > section { margin: 0; min-width: 0; padding: 18px; overflow-wrap: anywhere; }
     .inbox-grid h2 { font-size: 1.08rem; margin-bottom: 14px; }
+    .inbox-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+    .inbox-list-heading h2 { margin: 0; }
+    #inbox-refresh { display: grid; place-items: center; flex: none; width: 32px; height: 32px; margin: 0; padding: 0; font-size: 1.2rem; line-height: 1; }
     .inbox-grid form { padding: 0; margin: 12px 0 0; border: 0; }
     .inbox-grid small, .inbox-meta { color: #425d53; }
     .inbox-meta { margin: 0 0 12px; }
@@ -68,13 +63,14 @@
     .inbox-message.customer { background: #eef5ff; border-inline-start: 3px solid #4b78aa; }
     .inbox-message.sent-reply { background: #eaf6ed; border-inline-start: 3px solid #377650; }
     .inbox-message strong { display: block; margin-bottom: 4px; }
+    #inbox-order-check { white-space: normal; }
+    #inbox-order-summary { white-space: pre-line; }
     .inbox-turn.employee { background: #e1eee4; margin-left: 22px; }
     #inbox-thread { max-height: 300px; overflow: auto; }
     #inbox-status { color: #425d53; }
     #inbox-status.error { color: #980f21; }
     #inbox-draft { min-height: 218px; field-sizing: content; }
     #inbox-send-status { margin-bottom: 0; }
-    #legacy-workspace { margin-top: 20px; }
     @media (max-width: 960px) { .inbox-grid { grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr); } .inbox-grid > :last-child { grid-column: 2; } }
     @media (max-width: 640px) { .inbox-grid { grid-template-columns: minmax(0, 1fr); } .inbox-grid > :last-child { grid-column: auto; } }
   </style>
@@ -123,7 +119,7 @@
     <form id="order-import-form">
       <div class="field"><label for="order-file">Sipariş dosyası (UTF-8 CSV, en fazla 2 MB)</label><input id="order-file" type="file" accept=".csv,text/csv" required></div>
       <p><code>order_id,customer_email,product,purchase_date,delivery_date</code></p>
-      <p>Tarihleri YYYY-AA-GG biçiminde yaz. Teslimat kaydı yoksa son alan boş kalabilir.</p>
+      <p>Tarihleri GG.AA.YYYY biçiminde yaz. Örneğin 13.11.2026. Teslimat tarihi bilinmiyorsa delivery_date alanını boş bırakabilirsin.</p>
       <button type="submit">Siparişleri yükle</button>
     </form>
     <p id="order-import-status" role="status"></p>
@@ -156,9 +152,12 @@
   <div id="employee-work" hidden>
   <div class="inbox-grid">
     <section aria-labelledby="inbox-title">
-      <h2 id="inbox-title">İade talepleri</h2>
-      <p id="inbox-source" class="inbox-meta">Örnek posta kutusu</p>
-      <button id="inbox-refresh" type="button">Gelen mailleri yenile</button>
+      <div class="inbox-list-heading">
+        <h2 id="inbox-title">İade talepleri</h2>
+        <button id="inbox-refresh" type="button" aria-label="Gelen mailleri yenile"
+                title="Gelen mailleri yenile">↻</button>
+      </div>
+      <p id="inbox-source" class="inbox-meta">Gmail · Netle İade</p>
       <p id="inbox-load-status" role="status" class="inbox-meta"></p>
       <div id="inbox-list"></div>
     </section>
@@ -226,72 +225,11 @@
       </form>
     </section>
   </div>
-  <details id="legacy-workspace">
-  <summary>Elle talep gir ve prompt şablonlarını yönet</summary>
-  <form id="request-form">
-    <label for="request">İade isteğin</label>
-    <textarea id="request" rows="4" required maxlength="2000" placeholder="Müşteri kahve makinesini iade etmek istiyor. Kutusunu açmış. Ne yazayım?"></textarea>
-    <button type="submit">İsteği incele</button>
-  </form>
-  <p id="status" role="status"></p>
-  <form id="answers-form" hidden>
-    <h2>Eksik bilgiler</h2>
-    <div id="questions"></div>
-    <button type="submit">Yanıtı hazırla</button>
-  </form>
-  <section aria-labelledby="templates-title">
-    <h2 id="templates-title">Prompt şablonları</h2>
-    <label for="template-kind">Önizlenecek şablon</label>
-    <select id="template-kind">
-      <option value="standart-iade">Standart iade</option>
-      <option value="hasarli-teslimat">Hasarlı teslimat</option>
-      <option value="hijyen-muhurlu-urun">Hijyen mühürlü ürün</option>
-    </select>
-    <button id="preview-template" type="button">Önizle</button>
-    <div id="template-preview" hidden>
-      <p id="template-prompt"></p>
-      <ul id="template-sources"></ul>
-      <button id="approve-template" type="button">Onayla ve kaydet</button>
-    </div>
-    <p id="template-status" role="status"></p>
-    <div id="template-list"></div>
-    <form id="template-form" hidden>
-      <label for="saved-template">Onaylı şablon</label>
-      <select id="saved-template" required></select>
-      <label>Ürün adı <input name="product" required maxlength="120"></label>
-      <div class="template-fields" id="template-fields"></div>
-      <button type="submit">Şablonla taslak oluştur</button>
-    </form>
-  </section>
-  <section id="result" hidden>
-    <label for="draft">Müşteri yanıtı taslağı</label>
-    <textarea id="draft" rows="5"></textarea>
-    <details>
-      <summary>Prompt ve kaynaklar</summary>
-      <p id="prompt"></p>
-      <ul id="sources"></ul>
-    </details>
-    <details class="measurements">
-      <summary>Token ve süre ölçümleri</summary>
-      <table>
-        <thead><tr><th scope="col">Çağrı</th><th scope="col">Girdi</th><th scope="col">Çıktı</th><th scope="col">Süre</th></tr></thead>
-        <tbody id="usage"></tbody>
-      </table>
-    </details>
-  </section>
-  </details>
   </div>
 </main>
 <script src="/netle_inbox.js"></script>
 <script>
-  const requestForm = document.querySelector('#request-form');
-  const answersForm = document.querySelector('#answers-form');
-  const questions = document.querySelector('#questions');
-  const result = document.querySelector('#result');
-  const status = document.querySelector('#status');
   const buttons = document.querySelectorAll('button:not(.inbox-grid button)');
-  let sessionId;
-  let previewId;
   let busy = false;
   let currentRole = null;
 
@@ -366,224 +304,10 @@
     }));
   }
 
-  function showResult(data) {
-    result.hidden = false;
-    document.querySelector('#draft').value = data.draft;
-    document.querySelector('#prompt').textContent = data.prompt;
-    showList(document.querySelector('#sources'), data.sources);
-    const names = {embed_index: 'Belge embedding’i', embed_query: 'Sorgu embedding’i',
-      generate_draft: 'Taslak üretimi', template_generate_draft: 'Şablondan taslak üretimi'};
-    document.querySelector('#usage').replaceChildren(...data.usage.map(call => {
-      const row = document.createElement('tr');
-      const name = names[call.operation] || call.operation;
-      for (const value of [call.status === 'ok' ? name : name + ' (başarısız)',
-        call.input_tokens ?? '—', call.output_tokens ?? '—',
-        (call.elapsed_ms / 1000).toLocaleString('tr-TR', {maximumFractionDigits: 2}) + ' sn']) {
-        const cell = row.insertCell();
-        cell.textContent = value;
-      }
-      return row;
-    }));
-    document.querySelector('#draft').focus();
-  }
-
   function setBusy(value) {
     busy = value;
     for (const button of buttons) button.disabled = value;
   }
-
-  async function submit(payload) {
-    setBusy(true);
-    status.className = '';
-    status.textContent = payload.action === 'start' ? 'Belgeler aranıyor…' : 'Taslak hazırlanıyor…';
-    try {
-      const data = await post('/api/refund', payload);
-      if (data.questions && !data.flow) {
-        answersForm.hidden = true;
-        throw new Error('Netle bu isteği bir iade akışına bağlayamadı. Uygulamayı yeniden başlatıp tekrar dene.');
-      }
-      sessionId = data.session_id;
-      answersForm.hidden = !data.questions;
-      result.hidden = !data.draft;
-      if (data.questions) {
-        questions.replaceChildren();
-        for (const [key, text] of Object.entries(data.questions)) {
-          const field = document.createElement('div');
-          field.className = 'field';
-          const label = document.createElement('label');
-          label.htmlFor = key;
-          label.textContent = text;
-          const isDeliveryDate = key === 'teslimattan_sonra_gun';
-          const input = document.createElement(isDeliveryDate ? 'input' : 'select');
-          input.id = key;
-          input.name = isDeliveryDate ? 'teslim_tarihi' : key;
-          input.required = true;
-          if (isDeliveryDate) {
-            input.type = 'date';
-            input.max = todayDateInput();
-          } else {
-            input.add(new Option('Seç', ''));
-            input.add(new Option('Evet', 'true'));
-            input.add(new Option('Hayır', 'false'));
-          }
-          field.append(label, input);
-          if (isDeliveryDate) field.append(deliveryUnknownOption());
-          questions.append(field);
-        }
-        updateDeliveryFields(answersForm);
-        questions.querySelector('input, select').focus();
-      } else {
-        showResult(data);
-      }
-      const message = data.questions
-        ? 'Devam etmek için aşağıdaki soruları yanıtla.'
-        : 'Taslak hazır.';
-      status.textContent = data.flow ? data.flow + ' · ' + message : message;
-    } catch (error) {
-      status.className = 'error';
-      status.textContent = error.message;
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  requestForm.addEventListener('submit', event => {
-    event.preventDefault();
-    answersForm.hidden = result.hidden = true;
-    submit({action: 'start', request: document.querySelector('#request').value});
-  });
-  answersForm.addEventListener('change', () => updateDeliveryFields(answersForm));
-  answersForm.addEventListener('submit', event => {
-    event.preventDefault();
-    const answers = refundAnswers(answersForm);
-    submit({action: 'resume', session_id: sessionId, answers});
-  });
-
-  const templateForm = document.querySelector('#template-form');
-  const savedTemplate = document.querySelector('#saved-template');
-  const templateStatus = document.querySelector('#template-status');
-  const approveButton = document.querySelector('#approve-template');
-  const templateKind = document.querySelector('#template-kind');
-  const previewPanel = document.querySelector('#template-preview');
-  const templateFields = document.querySelector('#template-fields');
-  let approvedTemplates = [];
-  let previewName;
-
-  function updateTemplateFields() {
-    const selected = approvedTemplates.find(template => template.approval_id === savedTemplate.value);
-    if (templateFields.dataset.selection === savedTemplate.value) return;
-    templateFields.dataset.selection = savedTemplate.value;
-    const fields = Object.entries(selected?.fields ?? {});
-    templateFields.replaceChildren(...fields.map(([key, text]) => {
-      const label = document.createElement('label');
-      const input = document.createElement(key === 'days' ? 'input' : 'select');
-      label.textContent = text;
-      input.name = key;
-      if (key === 'days') {
-        input.type = 'number';
-        input.min = 0;
-        input.max = 9999;
-        input.placeholder = 'Bilinmiyor';
-      } else {
-        input.add(new Option('Bilinmiyor', ''));
-        input.add(new Option('Evet', 'true'));
-        input.add(new Option('Hayır', 'false'));
-      }
-      label.append(input);
-      return label;
-    }));
-    const seal = templateFields.querySelector('[name="hijyen_muhru_acik"]');
-    if (seal) {
-      const updateSeal = () => {
-        for (const field of templateFields.querySelectorAll('input, select')) {
-          if (field === seal) continue;
-          field.disabled = seal.value !== 'false';
-          field.parentElement.hidden = field.disabled;
-        }
-      };
-      seal.addEventListener('change', updateSeal);
-      updateSeal();
-    }
-  }
-
-  savedTemplate.addEventListener('change', updateTemplateFields);
-  templateKind.addEventListener('change', () => {
-    previewPanel.hidden = true;
-    previewId = undefined;
-  });
-
-  async function refreshTemplates() {
-    const {templates} = await post('/api/templates', {action: 'list'});
-    const available = templates.filter(template => template.available);
-    approvedTemplates = available;
-    const selected = savedTemplate.value;
-    savedTemplate.replaceChildren(...available.map(template =>
-      new Option(template.label, template.approval_id)
-    ));
-    if (available.some(template => template.approval_id === selected)) savedTemplate.value = selected;
-    templateForm.hidden = !available.length;
-    updateTemplateFields();
-    document.querySelector('#template-list').textContent = templates.some(template => !template.available)
-      ? 'Kaynağı değişmiş şablonlar yeniden inceleme bekliyor.' : '';
-    approveButton.hidden = !previewId || available.some(template => template.approval_id === previewId);
-  }
-
-  async function templateTask(message, task) {
-    if (busy) return;
-    setBusy(true);
-    templateStatus.textContent = message;
-    try {
-      await task();
-    } catch (error) {
-      templateStatus.textContent = error.message;
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  document.querySelector('#preview-template').addEventListener('click', () => {
-    templateTask('Şablon okunuyor…', async () => {
-      const data = await post('/api/templates', {action: 'preview', name: templateKind.value});
-      if (data.name !== templateKind.value) {
-        templateStatus.textContent = '';
-        return;
-      }
-      previewName = data.name;
-      previewId = data.approval_id;
-      document.querySelector('#template-prompt').textContent = data.prompt;
-      showList(document.querySelector('#template-sources'), data.sources);
-      await refreshTemplates();
-      previewPanel.hidden = false;
-      templateStatus.textContent = approveButton.hidden ? 'Bu şablon zaten onaylı.' : 'Önizleme hazır.';
-    });
-  });
-
-  approveButton.addEventListener('click', () => {
-    templateTask('Şablon kaydediliyor…', async () => {
-      const approvalId = previewId;
-      await post('/api/templates', {action: 'approve', name: previewName, approval_id: approvalId});
-      await refreshTemplates();
-      savedTemplate.value = approvalId;
-      updateTemplateFields();
-      templateStatus.textContent = 'Şablon kaynak sürümleriyle kaydedildi.';
-    });
-  });
-
-  templateForm.addEventListener('submit', event => {
-    event.preventDefault();
-    templateTask('Şablondan taslak hazırlanıyor…', async () => {
-      const fields = new FormData(templateForm);
-      const answers = Object.fromEntries([...fields].filter(([key]) => key !== 'product').map(([key, value]) =>
-        [key, value === '' ? null : key === 'days' ? Number(value) : value === 'true']
-      ));
-      const data = await post('/api/templates', {
-        action: 'use', approval_id: savedTemplate.value, product: fields.get('product'),
-        ...answers
-      });
-      showResult(data);
-      templateStatus.textContent = 'Şablondan müşteri taslağı hazır.';
-    });
-  });
 
   const accountForm = document.querySelector('#account-form');
   const resetForm = document.querySelector('#employee-reset-form');
@@ -603,7 +327,10 @@
     document.querySelector('#employee-work').hidden = !username || isAdmin;
     document.body.classList.toggle('inbox-active', Boolean(username) && !isAdmin);
     if (!username || isAdmin) resetInbox();
-    else renderInbox();
+    else {
+      renderInbox();
+      startInboxPolling();
+    }
     document.querySelector('#account-menu').hidden = !username;
     document.querySelector('#employee-name').textContent = username ?? '';
     document.querySelector('#admin-documents').hidden = !isAdmin;
@@ -625,23 +352,6 @@
       document.querySelector('#order-import-status').textContent = '';
       document.querySelector('#document-status').textContent = '';
       document.querySelector('#document-list').replaceChildren();
-    }
-    if (!username) {
-      sessionId = undefined;
-      previewId = undefined;
-      requestForm.reset();
-      templateForm.reset();
-      approvedTemplates = [];
-      savedTemplate.replaceChildren();
-      templateForm.hidden = true;
-      questions.replaceChildren();
-      document.querySelector('#draft').value = '';
-      document.querySelector('#prompt').textContent = '';
-      document.querySelector('#sources').replaceChildren();
-      document.querySelector('#usage').replaceChildren();
-      result.hidden = answersForm.hidden = previewPanel.hidden = true;
-      status.textContent = templateStatus.textContent = '';
-      updateTemplateFields();
     }
   }
 
@@ -673,7 +383,7 @@
         document.querySelector('#document-status').textContent = error.message;
       }
     } else {
-      await Promise.all([refreshTemplates(), refreshInbox()]);
+      await refreshInbox();
     }
   }
 
