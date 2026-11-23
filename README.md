@@ -16,11 +16,11 @@ python -m venv .venv
 
 [Netle’yi tarayıcıda aç](http://127.0.0.1:8000). VS Code'da terminal komutu yerine **Run and Debug → Netle’yi Başlat → ▶** seçeneğini veya **F5** tuşunu kullanabilirsin. Bu seçenek, Python ve Python Debugger eklentileriyle proje klasöründeki `.venv` ortamını kullanır.
 
-`.env` dosyasında `NETLE_ADMIN_USERNAME` ve `NETLE_ADMIN_PASSWORD` alanlarını belirle. Uygulama açıldığında bu bilgilerle yönetici hesabı oluşturulur veya güncellenir; sonraki kayıtlar çalışan hesabı olur. `.env` Git'e eklenmez. Yönetici hesabı **Şirket belgeleri** bölümünden PDF, DOCX, TXT veya MD dosyalarını yükleyebilir. Dosyanın metni incelendikten ve yönetici onayladıktan sonra belge RAG aramasında etkinleşir. Aynı başlıkta yeni içerik yüklenirse eski ve yeni metin karşılaştırma için gösterilir; yeni sürüm ancak onayla etkinleşir. Önceki sürümler SQLite'ta arşivlenir.
+`.env` dosyasında `NETLE_ADMIN_USERNAME` ve `NETLE_ADMIN_PASSWORD` alanlarını belirle. Uygulama açıldığında bu bilgilerle yönetici hesabı oluşturulur veya güncellenir. Yönetici, paneldeki **Çalışan ekle** formundan kullanıcı adı ve ilk parola belirler. `.env` Git'e eklenmez. Yönetici hesabı **Şirket belgeleri** bölümünden PDF, DOCX, TXT veya MD dosyalarını yükleyebilir. Dosyanın metni incelendikten ve yönetici onayladıktan sonra belge RAG aramasında etkinleşir. Aynı başlıkta yeni içerik yüklenirse eski ve yeni metin karşılaştırma için gösterilir; yeni sürüm ancak onayla etkinleşir. Önceki sürümler SQLite'ta arşivlenir.
 
 İade kararı içeren müşteri taslakları yalnızca etkin, yönetici onaylı dosyalardan getirilen pasajları kullanır. Onaylı belge yoksa veya ilgili bilgi bulunamazsa taslak oluşturulmaz. Orijinal dosya, çıkarılan metin ve sürüm geçmişi yerel `netle.sqlite3` veritabanında saklanır. PDF metin içermelidir; taranmış belge için OCR henüz desteklenmiyor. İlk dosya yüklemesinden önce `pip install -r requirements.txt` komutuyla PDF kitaplığı kurulur.
 
-Hesaplar, roller ve oturumlar SQLite'ta saklanır. Yerel pilotun kayıt ekranı şirket kimlik sağlayıcısıyla bağlantı kurmaz.
+Hesaplar, roller ve oturumlar SQLite'ta saklanır. Çalışanlar giriş ekranından kendi hesaplarını oluşturamaz.
 
 Kullanıcı adı unutulursa SQLite içindeki `employees` tablosundan görülebilir. `.env` ayarlıysa yönetici parolasını bu dosyada güncelleyip uygulamayı yeniden başlat. Yönetici, parolasını unutan çalışan için panelden geçici parola oluşturabilir.
 

@@ -37,15 +37,22 @@
     .document-version { border-top: 1px solid #d8e1d6; padding-top: 12px; margin-top: 12px; }
     .document-version p { margin: 5px 0; }
     .document-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+    #employee-list > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #d8e1d6; }
+    #employee-list button { margin: 0; padding: 6px 12px; }
     .document-status { color: #425d53; }
     #admin-documents pre { white-space: pre-wrap; overflow-wrap: anywhere; }
     body.password-only header, body.password-only #employee-work,
-    body.password-only #admin-documents, body.password-only #admin-orders, body.password-only #employee-reset-form,
+    body.password-only #admin-work,
     body.password-only #account-form, body.password-only #account-status { display: none; }
     body.password-only main { max-width: 520px; padding-top: clamp(48px, 12vh, 120px); }
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid #d8e1d6; white-space: nowrap; }
-    body.inbox-active main { max-width: 1580px; padding-top: 24px; }
+    body.admin-active:not(.password-only) main, body.inbox-active main { max-width: 1580px; padding-top: 24px; }
+    .admin-grid:not([hidden]) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+    .admin-grid > section, .admin-staff > section, .admin-staff > form { min-width: 0; margin: 0; padding: 18px; overflow-wrap: anywhere; }
+    .admin-grid > section > form { margin: 12px 0 0; padding: 0; border: 0; }
+    .admin-staff { display: grid; min-width: 0; gap: 14px; }
+    @media (max-width: 860px) { .admin-grid:not([hidden]) { grid-template-columns: minmax(0, 1fr); } }
     .inbox-grid { display: grid; grid-template-columns: minmax(215px, 1fr) minmax(0, 2fr) minmax(280px, 1.35fr); gap: 14px; align-items: stretch; }
     .inbox-grid > section { margin: 0; min-width: 0; padding: 18px; overflow-wrap: anywhere; }
     .inbox-grid h2 { font-size: 1.08rem; margin-bottom: 14px; }
@@ -99,10 +106,8 @@
     <div class="field">
       <label for="password">Parola</label>
       <input id="password" type="password" autocomplete="current-password" maxlength="128" required>
-      <small id="password-hint" hidden>En az 8 karakter ve bir rakam kullan.</small>
     </div>
     <button id="account-submit" type="submit">Oturum aç</button>
-    <button id="account-mode" type="button">Kayıt ol</button>
   </form>
   <p id="account-status" role="status"></p>
   <form id="password-form" hidden onsubmit="return false">
@@ -113,42 +118,66 @@
     <button id="password-cancel" type="button">Vazgeç</button>
   </form>
   <p id="password-status" role="status"></p>
-  <section id="admin-orders" hidden>
-    <h2>Sipariş kayıtları</h2>
-    <p>Şirketin sipariş dışa aktarımını CSV olarak yükle. Aynı sipariş numarası yeniden yüklenirse kayıt güncellenir.</p>
-    <form id="order-import-form">
-      <div class="field"><label for="order-file">Sipariş dosyası (UTF-8 CSV, en fazla 2 MB)</label><input id="order-file" type="file" accept=".csv,text/csv" required></div>
-      <p><code>order_id,customer_email,product,purchase_date,delivery_date</code></p>
-      <p>Tarihleri GG.AA.YYYY biçiminde yaz. Örneğin 13.11.2026. Teslimat tarihi bilinmiyorsa delivery_date alanını boş bırakabilirsin.</p>
-      <button type="submit">Siparişleri yükle</button>
-    </form>
-    <p id="order-import-status" role="status"></p>
-  </section>
-  <section id="admin-documents" hidden>
-    <h2>Şirket belgeleri</h2>
-    <p>Yüklenen dosyalar taslak üretiminde kullanılmadan önce yönetici onayından geçer. Aynı başlıktaki yeni sürüm onaylanınca eski sürüm aramadan çıkarılır.</p>
-    <form id="document-upload-form">
-      <div class="field"><label for="document-title">Belge başlığı</label><input id="document-title" maxlength="120" required placeholder="İade politikası"></div>
-      <div class="field"><label for="document-file">Dosya (PDF, DOCX, TXT veya MD; en fazla 8 MB)</label><input id="document-file" type="file" accept=".pdf,.docx,.txt,.md" required></div>
-      <button type="submit">Belgeyi incelemeye yükle</button>
-    </form>
-    <p id="document-status" role="status" class="document-status"></p>
-    <div id="document-list"></div>
-  </section>
-  <form id="employee-reset-form" hidden>
-    <h2>Çalışan parolasını sıfırla</h2>
-    <div class="field">
-      <label for="reset-username">Çalışanın kullanıcı adı</label>
-      <input id="reset-username" minlength="3" maxlength="40" autocomplete="off" required>
+  <div id="admin-work" class="admin-grid" hidden>
+    <section id="admin-orders">
+      <h2>Sipariş kayıtları</h2>
+      <p>Şirketin sipariş dışa aktarımını CSV olarak yükle. Aynı sipariş numarası yeniden yüklenirse kayıt güncellenir.</p>
+      <form id="order-import-form">
+        <div class="field"><label for="order-file">Sipariş dosyası (UTF-8 CSV, en fazla 2 MB)</label><input id="order-file" type="file" accept=".csv,text/csv" required></div>
+        <p><code>order_id,customer_email,product,purchase_date,delivery_date</code></p>
+        <p>Tarihleri GG.AA.YYYY biçiminde yaz. Örneğin 13.11.2026. Teslimat tarihi bilinmiyorsa delivery_date alanını boş bırakabilirsin.</p>
+        <button type="submit">Siparişleri yükle</button>
+      </form>
+      <p id="order-import-status" role="status"></p>
+    </section>
+    <section id="admin-documents">
+      <h2>Şirket belgeleri</h2>
+      <p>Yüklenen dosyalar taslak üretiminde kullanılmadan önce yönetici onayından geçer. Aynı başlıktaki yeni sürüm onaylanınca eski sürüm aramadan çıkarılır.</p>
+      <form id="document-upload-form">
+        <div class="field"><label for="document-title">Belge başlığı</label><input id="document-title" maxlength="120" required placeholder="İade politikası"></div>
+        <div class="field"><label for="document-file">Dosya (PDF, DOCX, TXT veya MD; en fazla 8 MB)</label><input id="document-file" type="file" accept=".pdf,.docx,.txt,.md" required></div>
+        <button type="submit">Belgeyi incelemeye yükle</button>
+      </form>
+      <p id="document-status" role="status" class="document-status"></p>
+      <div id="document-list"></div>
+    </section>
+    <div class="admin-staff">
+      <form id="employee-create-form">
+        <h2>Çalışan ekle</h2>
+        <div class="field">
+          <label for="employee-create-username">Kullanıcı adı</label>
+          <input id="employee-create-username" name="username" minlength="3" maxlength="40" autocomplete="off" required>
+        </div>
+        <div class="field">
+          <label for="employee-create-password">İlk parola</label>
+          <input id="employee-create-password" name="password" type="password" autocomplete="new-password"
+                 minlength="8" maxlength="128" pattern=".*[0-9].*" aria-describedby="employee-create-hint" required>
+          <small id="employee-create-hint">En az 8 karakter ve bir rakam kullan.</small>
+        </div>
+        <button type="submit">Çalışan ekle</button>
+        <p id="employee-create-status" role="status"></p>
+      </form>
+      <section id="employee-directory" aria-labelledby="employee-directory-title">
+        <h2 id="employee-directory-title">Çalışanlar</h2>
+        <div id="employee-list"></div>
+        <p id="employee-list-status" role="status"></p>
+      </section>
+      <form id="employee-reset-form">
+        <h2>Çalışan parolasını sıfırla</h2>
+        <div class="field">
+          <label for="reset-username">Çalışanın kullanıcı adı</label>
+          <input id="reset-username" minlength="3" maxlength="40" autocomplete="off" required>
+        </div>
+        <button type="submit">Geçici parola oluştur</button>
+        <p id="employee-reset-status" role="status"></p>
+        <div id="temporary-password-panel" hidden>
+          <label for="temporary-password">Geçici parola</label>
+          <input id="temporary-password" type="text" readonly autocomplete="off">
+          <p>Bu parolayı çalışana ilet. Çalışan giriş yaptıktan sonra hesabından parolasını değiştirebilir.</p>
+        </div>
+      </form>
     </div>
-    <button type="submit">Geçici parola oluştur</button>
-    <p id="employee-reset-status" role="status"></p>
-    <div id="temporary-password-panel" hidden>
-      <label for="temporary-password">Geçici parola</label>
-      <input id="temporary-password" type="text" readonly autocomplete="off">
-      <p>Bu parolayı çalışana ilet. Çalışan giriş yaptıktan sonra hesabından parolasını değiştirebilir.</p>
-    </div>
-  </form>
+  </div>
   <div id="employee-work" hidden>
   <div class="inbox-grid">
     <section aria-labelledby="inbox-title">
@@ -316,7 +345,11 @@
   const temporaryPasswordPanel = document.querySelector('#temporary-password-panel');
   const accountStatus = document.querySelector('#account-status');
   const password = document.querySelector('#password');
-  let accountMode = 'login';
+  const createEmployeeForm = document.querySelector('#employee-create-form');
+  const createEmployeeStatus = document.querySelector('#employee-create-status');
+  const adminWork = document.querySelector('#admin-work');
+  const employeeList = document.querySelector('#employee-list');
+  const employeeListStatus = document.querySelector('#employee-list-status');
 
   function setAccount(username, message = '', role = null) {
     currentRole = username ? role : null;
@@ -333,10 +366,13 @@
     }
     document.querySelector('#account-menu').hidden = !username;
     document.querySelector('#employee-name').textContent = username ?? '';
-    document.querySelector('#admin-documents').hidden = !isAdmin;
-    document.querySelector('#admin-orders').hidden = !isAdmin;
-    resetForm.hidden = !isAdmin;
+    adminWork.hidden = !isAdmin;
+    document.body.classList.toggle('admin-active', isAdmin);
     if (!isAdmin) {
+      createEmployeeForm.reset();
+      createEmployeeStatus.textContent = '';
+      employeeListStatus.textContent = '';
+      employeeList.replaceChildren();
       resetForm.reset();
       temporaryPasswordPanel.hidden = true;
       resetStatus.textContent = '';
@@ -354,6 +390,65 @@
       document.querySelector('#document-list').replaceChildren();
     }
   }
+
+  async function refreshEmployees() {
+    try {
+      const {employees} = await post('/api/account', {action: 'list_employees'});
+      if (currentRole !== 'admin') return;
+      employeeList.replaceChildren(...employees.map(username => {
+        const row = document.createElement('div');
+        const label = document.createElement('span');
+        label.textContent = username;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Sil';
+        button.setAttribute('aria-label', username + ' adlı çalışanı sil');
+        button.addEventListener('click', () => deleteEmployee(username, button));
+        row.append(label, button);
+        return row;
+      }));
+      employeeListStatus.textContent = employees.length ? '' : 'Henüz çalışan hesabı yok.';
+    } catch (error) {
+      if (currentRole === 'admin') employeeListStatus.textContent = error.message;
+    }
+  }
+
+  async function deleteEmployee(username, button) {
+    if (busy || currentRole !== 'admin' || !confirm(username + ' adlı çalışan silinsin mi?')) return;
+    setBusy(true);
+    button.disabled = true;
+    try {
+      await post('/api/account', {action: 'delete_employee', username});
+      button.parentElement.remove();
+      await refreshEmployees();
+    } catch (error) {
+      if (currentRole === 'admin') employeeListStatus.textContent = error.message;
+    } finally {
+      button.disabled = false;
+      setBusy(false);
+    }
+  }
+
+  createEmployeeForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (busy || currentRole !== 'admin') return;
+    const fields = new FormData(createEmployeeForm);
+    setBusy(true);
+    createEmployeeStatus.textContent = 'Çalışan hesabı oluşturuluyor…';
+    try {
+      const data = await post('/api/account', {
+        action: 'create_employee', username: fields.get('username'), password: fields.get('password'),
+      });
+      createEmployeeForm.reset();
+      createEmployeeStatus.textContent = data.created_username + ' için çalışan hesabı oluşturuldu.';
+      await refreshEmployees();
+    } catch (error) {
+      createEmployeeStatus.textContent = currentRole === 'admin' ? error.message : '';
+    } finally {
+      document.querySelector('#employee-create-password').value = '';
+      setBusy(false);
+    }
+  });
 
   resetForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -378,7 +473,7 @@
   async function refreshWorkspace() {
     if (currentRole === 'admin') {
       try {
-        await Promise.all([refreshDocuments(), refreshOrderCount()]);
+        await Promise.all([refreshDocuments(), refreshOrderCount(), refreshEmployees()]);
       } catch (error) {
         document.querySelector('#document-status').textContent = error.message;
       }
@@ -614,34 +709,13 @@
     }
   });
 
-  document.querySelector('#account-mode').addEventListener('click', event => {
-    accountMode = accountMode === 'login' ? 'register' : 'login';
-    const registering = accountMode === 'register';
-    document.querySelector('#account-title').textContent = registering ? 'Çalışan hesabı oluştur' : 'Çalışan girişi';
-    document.querySelector('#account-submit').textContent = registering ? 'Hesap oluştur' : 'Oturum aç';
-    event.currentTarget.textContent = registering ? 'Girişe dön' : 'Kayıt ol';
-    password.autocomplete = registering ? 'new-password' : 'current-password';
-    document.querySelector('#password-hint').hidden = !registering;
-    if (registering) {
-      password.minLength = 8;
-      password.pattern = '.*[0-9].*';
-      password.setAttribute('aria-describedby', 'password-hint');
-    } else {
-      for (const attribute of ['minlength', 'pattern', 'aria-describedby']) {
-        password.removeAttribute(attribute);
-      }
-    }
-    password.value = '';
-    accountStatus.textContent = '';
-  });
-
   accountForm.addEventListener('submit', async event => {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     try {
       const data = await post('/api/account', {
-        action: accountMode, username: document.querySelector('#username').value, password: password.value,
+        action: 'login', username: document.querySelector('#username').value, password: password.value,
       });
       setAccount(data.username, '', data.role);
       await refreshWorkspace();
