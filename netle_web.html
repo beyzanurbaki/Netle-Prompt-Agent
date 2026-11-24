@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Netle · İade asistanı</title>
+  <title>Netle · Müşteri hizmetleri</title>
   <style>
     :root {
       color-scheme: light;
@@ -71,7 +71,7 @@
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid #d8e1d6; white-space: nowrap; }
     body.admin-active:not(.password-only) main, body.inbox-active main { max-width: 1580px; padding-top: 24px; }
-    .admin-grid:not([hidden]) { display: grid; grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .admin-grid:not([hidden]), .employee-layout:not([hidden]) { display: grid; grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); gap: 14px; align-items: start; }
     .admin-grid > section, .admin-staff > section, .admin-staff > form { min-width: 0; margin: 0; padding: 18px; overflow-wrap: anywhere; }
     .admin-grid > section > form { margin: 12px 0 0; padding: 0; border: 0; }
     .admin-staff:not([hidden]) { display: grid; min-width: 0; gap: 16px; }
@@ -82,11 +82,19 @@
     .admin-nav button { margin: 0; text-align: start; color: var(--ink); background: transparent; }
     .admin-nav button[aria-pressed="true"] { color: #fff; background: var(--brand); }
     @media (max-width: 700px) {
-      .admin-grid:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
+      .admin-grid:not([hidden]), .employee-layout:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
       .admin-nav { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .employee-layout .admin-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .employee-layout .admin-nav #work-prompt { grid-column: 1 / -1; }
       .admin-nav button { padding: 8px 5px; text-align: center; font-size: .86rem; overflow-wrap: anywhere; }
     }
-    .inbox-grid { display: grid; grid-template-columns: minmax(215px, 1fr) minmax(0, 2fr) minmax(280px, 1.35fr); gap: 14px; align-items: stretch; }
+    .inbox-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 16px; min-width: 0; align-items: start; }
+    .inbox-grid[hidden] { display: none; }
+    #prompt-work { min-width: 0; }
+    #prompt-work form { margin: 0; padding: 0; border: 0; }
+    #prompt-result { margin-top: 20px; }
+    #prompt-result ul, #prompt-sources { overflow-wrap: anywhere; }
+    #inbox-list-panel { grid-column: 1 / -1; }
     .inbox-grid > section { margin: 0; min-width: 0; padding: 20px; overflow-wrap: anywhere; }
     .inbox-grid h2 { font-size: 1.08rem; margin-bottom: 14px; }
     .inbox-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
@@ -95,9 +103,6 @@
     .inbox-grid form { padding: 0; margin: 12px 0 0; border: 0; }
     .inbox-grid small, .inbox-meta { color: #425d53; }
     .inbox-meta { margin: 0 0 12px; }
-    .inbox-filters { display: flex; gap: 6px; margin-bottom: 10px; }
-    .inbox-filters button { flex: 1; margin: 0; padding: 7px 8px; background: #f5f7f3; color: #172d27; }
-    .inbox-filters button[aria-pressed="true"] { background: #204f3e; color: #fff; }
     .inbox-mail { width: 100%; text-align: left; background: #f5f7f3; color: #172d27; padding: 12px; margin: 0 0 8px; border: 1px solid #d8e1d6; }
     .inbox-mail[aria-pressed="true"] { background: #e1eee4; border-color: #4e8c69; }
     .inbox-mail strong, .inbox-mail small { display: block; }
@@ -108,6 +113,9 @@
     .inbox-message strong { display: block; margin-bottom: 4px; }
     #inbox-order-check { white-space: normal; }
     #inbox-order-summary { white-space: pre-line; }
+    #inbox-return-window:not([hidden]) { display: inline-flex; gap: 6px; margin: 10px 0 0; padding: 5px 9px; border-radius: 8px; background: #e8eeeb; font-weight: 650; }
+    #inbox-return-window[data-window="yes"] { color: #1a5e40; background: #dcefe2; }
+    #inbox-return-window[data-window="no"] { color: #8c2532; background: #fae5e7; }
     .inbox-turn.employee { background: #e1eee4; margin-left: 22px; }
     #inbox-thread { max-height: 300px; overflow: auto; }
     #inbox-status { color: #425d53; }
@@ -116,7 +124,7 @@
     #inbox-send-status { margin-bottom: 0; }
     main { padding-inline: clamp(12px, 2.6vw, 36px); }
     section, form { border-color: var(--line); border-radius: 14px; }
-    .inbox-grid, .admin-grid:not([hidden]), .admin-staff { gap: 16px; }
+    .admin-grid:not([hidden]), .employee-layout:not([hidden]), .admin-staff { gap: 16px; }
     .inbox-grid > section, .admin-grid > section, .admin-staff > section, .admin-staff > form,
     #account-form, #password-form { box-shadow: 0 2px 5px #142f2709, 0 12px 26px #142f2707; }
     .inbox-grid > section > h2, .inbox-list-heading { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
@@ -134,9 +142,6 @@
       font: inherit; font-size: .86rem; font-weight: 650; margin-inline-end: 8px;
       padding: 5px 8px; color: var(--brand); background: #e7f1eb; border: 0; border-radius: 5px;
     }
-    .inbox-filters { background: #eef3ef; border-radius: 10px; padding: 4px; }
-    .inbox-filters button { background: transparent; color: var(--muted); }
-    .inbox-filters button[aria-pressed="true"] { background: var(--surface); color: var(--brand-deep); box-shadow: 0 1px 4px #142f2720; }
     #inbox-list { max-height: min(65vh, 720px); overflow: auto; scrollbar-gutter: stable; }
     .inbox-mail { background: var(--surface); padding: 10px 12px; }
     .inbox-mail strong { font-size: .93rem; }
@@ -144,24 +149,21 @@
     .inbox-mail[aria-pressed="true"] { border-color: #77a58e; box-shadow: inset 3px 0 var(--brand); }
     #inbox-subject { display: block; font-size: 1.13rem; line-height: 1.35; margin-bottom: 4px; }
     #inbox-sender { margin-bottom: 14px; }
-    #inbox-empty, #inbox-draft-empty { padding: 16px; border: 1px dashed #b8cbc0; border-radius: 10px; background: #f8fbf9; }
+    #inbox-draft-empty { padding: 16px; border: 1px dashed #b8cbc0; border-radius: 10px; background: #f8fbf9; }
     #inbox-order-check { background: #f6f8f6; border: 1px solid var(--line); }
     #inbox-order-check[data-status="verified"] { border-inline-start: 3px solid #39845e; background: #eef7f0; }
     #inbox-order-check[data-status="unmatched"], #inbox-order-check[data-status="review"] {
       border-inline-start: 3px solid #a76717; background: #fdf5e8;
     }
-    #inbox-draft-options { margin-bottom: 12px; }
     #inbox-draft-panel:not([hidden]) { padding-top: 12px; border-top: 1px solid var(--line); }
     #inbox-send { min-width: 112px; }
     #inbox-revise, #password-cancel { color: var(--brand); background: #e7f1eb; }
     #admin-orders code { display: block; padding: 9px; background: #eef4ef; border-radius: 8px; overflow-wrap: anywhere; }
     #document-list > section { background: #f8fbf9; margin: 12px 0 0; padding: 14px; }
-    @media (max-width: 960px) { .inbox-grid { grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr); } .inbox-grid > :last-child { grid-column: 2; } }
+    @media (max-width: 1050px) { .inbox-grid { grid-template-columns: minmax(0, 1fr); } }
     @media (max-width: 640px) {
       header { padding: 14px; margin-bottom: 16px; }
       header p { margin-left: 0; }
-      .inbox-grid { grid-template-columns: minmax(0, 1fr); }
-      .inbox-grid > :last-child { grid-column: auto; }
       .inbox-grid > section { padding: 16px; }
       #inbox-list { max-height: 36vh; }
     }
@@ -183,7 +185,7 @@
         </div>
       </div>
     </div>
-    <p id="employee-description">İade talepleri için şirket kurallarına dayalı müşteri yanıtı hazırla.</p>
+    <p id="employee-description">Şirket kaynaklarıyla müşteri yanıtı ve görev promptu hazırla.</p>
   </header>
   <form id="account-form" hidden>
     <h2 id="account-title">Çalışan girişi</h2>
@@ -272,92 +274,108 @@
       </form>
     </div>
   </div>
-  <div id="employee-work" hidden>
-  <div class="inbox-grid">
-    <section aria-labelledby="inbox-title">
-      <div class="inbox-list-heading">
-        <h2 id="inbox-title">İade talepleri</h2>
-        <button id="inbox-refresh" type="button" aria-label="Gelen mailleri yenile"
-                title="Gelen mailleri yenile">↻</button>
-      </div>
-      <p id="inbox-source" class="inbox-meta">Gmail · Netle İade</p>
-      <p id="inbox-load-status" role="status" class="inbox-meta"></p>
-      <div class="inbox-filters" role="group" aria-label="İade talebi durumu">
-        <button id="inbox-open" type="button" aria-controls="inbox-list" aria-pressed="true">Açık</button>
-        <button id="inbox-closed" type="button" aria-controls="inbox-list" aria-pressed="false">Kapanan</button>
-      </div>
-      <p id="inbox-filter-empty" class="inbox-meta" hidden></p>
-      <div id="inbox-list"></div>
-    </section>
-    <section aria-labelledby="inbox-conversation">
-      <h2 id="inbox-conversation">Vaka sohbeti</h2>
-      <p id="inbox-empty" class="inbox-meta">Başlamak için bir iade maili seç.</p>
-      <div id="inbox-case" hidden>
-        <strong id="inbox-subject"></strong>
-        <p id="inbox-sender" class="inbox-meta"></p>
-        <div id="inbox-original"></div>
-        <div id="inbox-order-check" class="inbox-message" hidden>
-          <strong id="inbox-order-title">Sipariş doğrulaması</strong>
-          <div id="inbox-order-summary"></div>
+  <div id="employee-work" class="employee-layout" hidden>
+    <nav class="admin-nav" aria-label="Çalışan araçları">
+      <button id="inbox-open" type="button" aria-controls="inbox-list-panel" aria-pressed="true">Açık iade talepleri</button>
+      <button id="inbox-closed" type="button" aria-controls="inbox-list-panel" aria-pressed="false">Kapanan iade talepleri</button>
+      <button id="work-prompt" type="button" aria-controls="prompt-work" aria-pressed="false">Prompt Geliştirici</button>
+    </nav>
+    <div id="refund-work" class="inbox-grid" aria-label="İade Asistanı">
+      <section id="inbox-list-panel" aria-labelledby="inbox-title">
+        <div class="inbox-list-heading">
+          <h2 id="inbox-title">Açık iade talepleri</h2>
+          <button id="inbox-refresh" type="button" aria-label="Gelen mailleri yenile"
+                  title="Gelen mailleri yenile">↻</button>
         </div>
-        <p id="inbox-attachments" class="inbox-meta" hidden></p>
-        <details id="inbox-quoted" hidden>
-          <summary>E-postadaki alıntıyı göster</summary>
-          <p id="inbox-quoted-body" class="inbox-message"></p>
-        </details>
-        <details id="inbox-history" hidden>
-          <summary>Önceki e-postalar</summary>
-          <div id="inbox-history-messages"></div>
-        </details>
-        <div id="inbox-sent-reply"></div>
-        <div id="inbox-thread" role="log" aria-label="Vaka sohbeti geçmişi"></div>
-        <p id="inbox-status" role="status"></p>
-        <button id="inbox-retry" type="button" hidden>Tekrar dene</button>
-        <form id="inbox-answers" hidden>
-          <div id="inbox-questions"></div>
-          <button type="submit">Bilgileri ilet</button>
-        </form>
-        <form id="inbox-chat" hidden>
-          <label for="inbox-message">Netle’ye yaz</label>
-          <textarea id="inbox-message" rows="2" required maxlength="2000"></textarea>
-          <button type="submit">Sohbete gönder</button>
-          <button id="inbox-revise" name="revise" type="submit" hidden>Taslağı bu notla güncelle</button>
-        </form>
-      </div>
-    </section>
-    <section aria-labelledby="inbox-draft-title">
-      <h2 id="inbox-draft-title">Yanıt taslağı</h2>
-      <p id="inbox-draft-empty" class="inbox-meta">Yanıt hazırlamak için bir iade e-postası seç.</p>
-      <div id="inbox-draft-options" hidden>
-        <label for="inbox-response-type">Yanıt türü</label>
-        <select id="inbox-response-type">
-          <option value="suggested">Netle önerisi</option>
-          <option value="missing-document">Talep alındı, belge eksik</option>
-          <option value="rejected">İade onaylanmadı</option>
-          <option value="approved">İade onaylandı</option>
-        </select>
-        <div class="field" id="inbox-response-detail-field" hidden>
-          <label for="inbox-response-detail" id="inbox-response-detail-label"></label>
-          <textarea id="inbox-response-detail" rows="2" maxlength="500"></textarea>
+        <p id="inbox-source" class="inbox-meta">Gmail · Netle İade</p>
+        <p id="inbox-load-status" role="status" class="inbox-meta"></p>
+        <p id="inbox-filter-empty" class="inbox-meta" hidden></p>
+        <div id="inbox-list"></div>
+      </section>
+      <section id="inbox-conversation-panel" aria-labelledby="inbox-conversation" hidden>
+        <h2 id="inbox-conversation">Vaka sohbeti</h2>
+        <div id="inbox-case" hidden>
+          <strong id="inbox-subject"></strong>
+          <p id="inbox-sender" class="inbox-meta"></p>
+          <div id="inbox-original"></div>
+          <div id="inbox-order-check" class="inbox-message" hidden>
+            <strong id="inbox-order-title">Sipariş doğrulaması</strong>
+            <div id="inbox-order-summary"></div>
+            <p id="inbox-return-window" hidden></p>
+          </div>
+          <p id="inbox-attachments" class="inbox-meta" hidden></p>
+          <details id="inbox-quoted" hidden>
+            <summary>E-postadaki alıntıyı göster</summary>
+            <p id="inbox-quoted-body" class="inbox-message"></p>
+          </details>
+          <details id="inbox-history" hidden>
+            <summary>Önceki e-postalar</summary>
+            <div id="inbox-history-messages"></div>
+          </details>
+          <div id="inbox-sent-reply"></div>
+          <div id="inbox-thread" role="log" aria-label="Vaka sohbeti geçmişi"></div>
+          <p id="inbox-status" role="status"></p>
+          <button id="inbox-retry" type="button" hidden>Tekrar dene</button>
+          <form id="inbox-answers" hidden>
+            <div id="inbox-questions"></div>
+            <button type="submit">Bilgileri ilet</button>
+          </form>
+          <form id="inbox-chat" hidden>
+            <label for="inbox-message">Netle’ye yaz</label>
+            <textarea id="inbox-message" rows="2" required maxlength="2000"></textarea>
+            <button type="submit">Sohbete gönder</button>
+            <button id="inbox-revise" name="revise" type="submit" hidden>Taslağı bu notla güncelle</button>
+          </form>
         </div>
-        <button id="inbox-create-draft" type="button" disabled>Yanıt oluştur</button>
-      </div>
-      <form id="inbox-draft-panel" hidden>
-        <div class="field"><label for="inbox-recipient">Alıcı</label><input id="inbox-recipient" type="email" required></div>
-        <div class="field"><label for="inbox-reply-subject">Konu</label><input id="inbox-reply-subject" maxlength="250" required></div>
-        <label for="inbox-draft">Mesaj</label>
-        <textarea id="inbox-draft" rows="10" maxlength="12000" required></textarea>
-        <details id="inbox-policy-sources"><summary>Politika kaynakları</summary><ul id="inbox-sources"></ul></details>
-        <button id="inbox-send" type="submit">Gönder</button>
-        <p id="inbox-send-status" role="status"></p>
+      </section>
+      <section id="inbox-response-panel" aria-labelledby="inbox-draft-title" hidden>
+        <h2 id="inbox-draft-title">Yanıt taslağı</h2>
+        <p id="inbox-draft-empty" class="inbox-meta">Yanıt hazırlamak için bir iade e-postası seç.</p>
+        <form id="inbox-draft-panel" hidden>
+          <div class="field"><label for="inbox-recipient">Alıcı</label><input id="inbox-recipient" type="email" required></div>
+          <div class="field"><label for="inbox-reply-subject">Konu</label><input id="inbox-reply-subject" maxlength="250" required></div>
+          <label for="inbox-draft">Mesaj</label>
+          <textarea id="inbox-draft" rows="10" maxlength="12000" required></textarea>
+          <details id="inbox-policy-sources"><summary>Politika kaynakları</summary><ul id="inbox-sources"></ul></details>
+          <button id="inbox-send" type="submit">Gönder</button>
+          <p id="inbox-send-status" role="status"></p>
+        </form>
+      </section>
+    </div>
+    <section id="prompt-work" aria-labelledby="prompt-title" hidden>
+      <h2 id="prompt-title">Prompt Geliştirici</h2>
+      <form id="prompt-form">
+        <div class="field">
+          <label for="prompt-request">Müşteri hizmetleri isteğin</label>
+          <textarea id="prompt-request" rows="4" maxlength="3000" required
+                    placeholder="Örn. Hasarlı ürün bildirimi yapan müşteriye hangi bilgileri göndermesi gerektiğini açıkla."></textarea>
+        </div>
+        <div id="prompt-questions"></div>
+        <label class="delivery-unknown">
+          <input id="prompt-preview" type="checkbox"> Yanıt taslağını da önizle
+        </label>
+        <button id="prompt-submit" type="submit">Promptu geliştir</button>
+        <button id="prompt-reset" type="button" hidden>Yeni istek</button>
       </form>
+      <p id="prompt-status" role="status"></p>
+      <div id="prompt-result" hidden>
+        <label for="prompt-output">Geliştirilmiş prompt</label>
+        <textarea id="prompt-output" rows="8" readonly></textarea>
+        <button id="prompt-copy" type="button">Promptu kopyala</button>
+        <h3>Değişiklikler ve gerekçeleri</h3>
+        <ul id="prompt-changes"></ul>
+        <div id="prompt-draft-panel" hidden>
+          <label for="prompt-draft">Yanıt taslağı</label>
+          <textarea id="prompt-draft" rows="6"></textarea>
+        </div>
+      </div>
+      <div id="prompt-sources"></div>
     </section>
-  </div>
   </div>
 </main>
 <script src="/netle_inbox.js"></script>
 <script>
-  const buttons = document.querySelectorAll('button:not(.inbox-grid button, .admin-nav button, #account-menu button)');
+  const buttons = document.querySelectorAll('button:not(.inbox-grid button, .admin-nav button, #account-menu button, #prompt-work button)');
   let busy = false;
   let currentRole = null;
 
@@ -432,6 +450,137 @@
     }));
   }
 
+  const promptElement = name => document.getElementById('prompt-' + name);
+  const promptTab = document.getElementById('work-prompt');
+  let promptAnswers = [];
+  let promptRevision = 0;
+
+  promptTab.addEventListener('click', () => {
+    document.getElementById('refund-work').hidden = true;
+    for (const filter of ['open', 'closed']) {
+      document.getElementById('inbox-' + filter).setAttribute('aria-pressed', 'false');
+    }
+    promptElement('work').hidden = false;
+    promptTab.setAttribute('aria-pressed', 'true');
+  });
+  function showRefundWork() {
+    document.getElementById('refund-work').hidden = false;
+    promptElement('work').hidden = true;
+    promptTab.setAttribute('aria-pressed', 'false');
+    renderInboxList();
+  }
+  for (const filter of ['open', 'closed']) {
+    document.getElementById('inbox-' + filter).addEventListener('click', showRefundWork);
+  }
+
+  function resetPrompt() {
+    promptRevision++;
+    promptAnswers = [];
+    promptElement('form').reset();
+    for (const name of ['questions', 'sources', 'changes', 'status']) {
+      promptElement(name).replaceChildren();
+    }
+    for (const name of ['output', 'draft']) promptElement(name).value = '';
+    for (const name of ['result', 'draft-panel', 'reset']) promptElement(name).hidden = true;
+    promptElement('request').readOnly = false;
+    promptElement('submit').hidden = false;
+    promptElement('submit').disabled = false;
+    promptElement('submit').textContent = 'Promptu geliştir';
+  }
+
+  function showPromptSources(sources) {
+    promptElement('sources').replaceChildren(...sources.map(source => {
+      const details = document.createElement('details');
+      const heading = document.createElement('summary');
+      heading.textContent = source.title + ' · v' + source.version;
+      const passage = document.createElement('p');
+      passage.className = 'document-text';
+      passage.textContent = source.text;
+      details.append(heading, passage);
+      return details;
+    }));
+  }
+
+  promptElement('reset').addEventListener('click', () => {
+    resetPrompt();
+    promptElement('request').focus();
+  });
+  promptElement('copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(promptElement('output').value);
+      promptElement('status').textContent = 'Prompt kopyalandı.';
+    } catch {
+      promptElement('output').select();
+      promptElement('status').textContent = 'Prompt seçildi. Klavyeden kopyalayabilirsin.';
+    }
+  });
+  promptElement('form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = promptElement('submit');
+    const request = promptElement('request');
+    if (submit.disabled || submit.hidden) return;
+    const revision = promptRevision;
+    const answers = [...promptAnswers, ...Array.from(
+      promptElement('questions').querySelectorAll('textarea'),
+      input => [input.labels[0].textContent, input.value.trim()]
+    )];
+    submit.disabled = true;
+    request.readOnly = true;
+    promptElement('reset').hidden = false;
+    promptElement('status').textContent = 'İstek ve şirket kaynakları inceleniyor…';
+    try {
+      const data = await post('/api/prompt', {
+        request: request.value, answers, preview: promptElement('preview').checked
+      });
+      if (revision !== promptRevision) return;
+      promptAnswers = answers;
+      promptElement('questions').replaceChildren();
+      promptElement('status').textContent = data.message || '';
+      showPromptSources(data.sources || []);
+      if (data.status === 'clarify') {
+        for (const [index, question] of data.questions.entries()) {
+          const field = document.createElement('div');
+          field.className = 'field';
+          const input = document.createElement('textarea');
+          input.id = 'prompt-answer-' + index;
+          input.rows = 2;
+          input.maxLength = 1200;
+          input.required = true;
+          input.placeholder = 'Bilmiyorsan “Bilinmiyor” yaz.';
+          const label = document.createElement('label');
+          label.htmlFor = input.id;
+          label.textContent = question;
+          field.append(label, input);
+          promptElement('questions').append(field);
+        }
+        submit.textContent = 'Bilgileri ilet';
+        promptElement('questions').querySelector('textarea').focus();
+      } else {
+        submit.hidden = true;
+      }
+      if (data.status === 'ready') {
+        promptElement('output').value = data.prompt;
+        const sources = new Map(data.sources.map(source => [source.id, source]));
+        showList(promptElement('changes'), data.changes.map(change => {
+          const source = sources.get(change.source);
+          const label = source ? source.title + ' · v' + source.version : 'İstek ve netleştirme yanıtları';
+          return change.change + ' — ' + change.reason + ' (' + label + ')';
+        }));
+        promptElement('draft').value = data.draft || '';
+        promptElement('draft-panel').hidden = !data.draft;
+        promptElement('result').hidden = false;
+        promptElement('status').textContent = 'Geliştirilmiş prompt hazır.';
+      }
+    } catch (error) {
+      if (revision === promptRevision) {
+        promptElement('status').textContent = error.message;
+        request.readOnly = Boolean(promptElement('questions').children.length);
+      }
+    } finally {
+      if (revision === promptRevision) submit.disabled = false;
+    }
+  });
+
   function setBusy(value) {
     busy = value;
     for (const button of buttons) button.disabled = value;
@@ -469,7 +618,11 @@
     document.querySelector('#employee-description').hidden = isAdmin;
     document.querySelector('#employee-work').hidden = !username || isAdmin;
     document.body.classList.toggle('inbox-active', Boolean(username) && !isAdmin);
-    if (!username || isAdmin) resetInbox();
+    if (!username || isAdmin) {
+      resetInbox();
+      resetPrompt();
+      showRefundWork();
+    }
     else {
       renderInbox();
       startInboxPolling();

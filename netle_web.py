@@ -19,7 +19,7 @@ from gmail_inbox import list_refund_mail
 from netle_mail import reply_status, send_reply, setup_sent_mail
 from netle_auth import account_action, employee, ensure_admin_from_env, setup
 from order_records import (
-    correction_draft, import_orders, inbox_order_check, inspect_inbox_orders,
+    WRONG_DELIVERY, catalog_product_name, correction_draft, import_orders, inbox_order_check, inspect_inbox_orders,
     order_count, parse_order_date, setup_orders, stored_order_date,
 )
 from company_documents import (approve as approve_document,
@@ -27,13 +27,15 @@ from company_documents import (approve as approve_document,
                                list_documents, retrieve as retrieve_company_documents,
                                setup as setup_documents, upload as upload_document)
 from refund_demo import chat
+from prompt_developer import develop
 from refund_graph import (
     CUSTOMER_MESSAGE_RULE, QUESTIONS, customer_message, delivery_date_unknown, make_graph,
 )
 PAGE = Path(__file__).with_name("netle_web.html")
 INBOX_SCRIPT = PAGE.with_name("netle_inbox.js")
 FLOW_LABELS = {"standard": "Standart iade", "damage": "Hasarlı teslimat",
-               "possible_damage": "Teslimat durumu", "hygiene": "Hijyen mühürlü ürün"}
+               "possible_damage": "Teslimat durumu", "hygiene": "Hijyen mühürlü ürün",
+               "before_delivery": "Teslimat öncesi cayma", "delivery_issue": "Yanlış veya eksik teslimat"}
 
 REFUND_REQUEST = re.compile(r"\biade\w*\b|\bgeri\s+(?:ver\w*|gönder\w*|yolla\w*)\b")
 VAGUE_REFUND_REQUEST = re.compile(
@@ -75,10 +77,10 @@ def extract_facts(words):
     elif not days and re.search(r"\bdün teslim\b", words):
         facts["teslimattan_sonra_gun"] = 1
     for field, positive, negative in (
-        ("kullanildi", r"\bkullanıldı\b|\bkullanılmış\b",
-         r"\bkullanılmadı\b|\bkullanılmamış\b"),
-        ("aksesuarlar_tam", r"\baksesuar(?:ları|lar)\s+(?:tam|eksiksiz)\b",
-         r"\baksesuar(?:ları|lar)\s+eksik\b"),
+        ("kullanildi", r"\bkullanıldı\b|\bkullandım\b|\bkullanılmış\b",
+         r"\bkullanılmadı\b|\bkullanmadım\b|\bkullanılmamış\b"),
+        ("paket_acildi", r"\b(?:paket(?:i)?|ambalaj(?:ı)?|kutu(?:su)?)\s+(?:açıldı|açılmış|açık|açtım)\b",
+         r"\b(?:paket(?:i)?|ambalaj(?:ı)?|kutu(?:su)?)\s+(?:açılmadı|açılmamış|kapalı|açmadım)\b"),
     ):
         matches = [
             value for pattern, value in ((positive, True), (negative, False))
@@ -94,7 +96,15 @@ def intake(request):
     if OUTSIDE_REFUND_REQUEST.search(words):
         raise IntakeError("out_of_scope")
     facts = extract_facts(words)
-    damage = r"(?:hasarlı|kırık|kırılmış|çatlak|ezilmiş|arızalı|kusurlu)"
+    if WRONG_DELIVERY.search(words):
+        return "delivery_issue", {**facts, "delivery_issue": "wrong"}
+    if re.search(r"\b(?:eksik (?:ürün|teslimat)|(?:ürün|kapak|kapağı|parça) (?:eksik geldi|kutudan çıkmadı))\b", words):
+        return "delivery_issue", {**facts, "delivery_issue": "missing"}
+    return_requested = REFUND_REQUEST.search(words) or re.search(r"\bcayma hakk\w*|\bcaymak istiyorum\b", words)
+    if return_requested:
+        if re.search(r"\b(?:henüz |daha )?(?:teslim edilmedi|teslim almadım|teslim almadık|elime ulaşmadı|gelmedi)\b", words):
+            return "before_delivery", facts
+    damage = r"(?:hasarlı|kırık|kırılmış|çatlak|ezilmiş|arızalı|kusurlu|eğilmiş|kıymıklı|yırtılmış)"
     if re.search(rf"\b{damage}\s+(?:(?:olarak|bir şekilde)\s+)?(?:geldi|gelmiş|ulaştı|ulaşmış|teslim edildi|teslim edilmiş)\b"
                  rf"|\bteslimat(?:ta| sırasında)\s+(?:{damage}|hasar gördü|kırıldı)\b"
                  r"|\bhasarlı teslimat\b(?!\s+(?:değil|mı)\b)", words):
@@ -105,7 +115,7 @@ def intake(request):
           and not re.search(r"\bhijyen mühürlü değil\b", words)):
         flow = "hygiene"
     else:
-        if REFUND_REQUEST.search(words) and not VAGUE_REFUND_REQUEST.fullmatch(words):
+        if return_requested and not VAGUE_REFUND_REQUEST.fullmatch(words):
             flow = "standard"
         elif OUTSIDE_REQUEST.search(words):
             raise IntakeError("out_of_scope")
@@ -126,7 +136,7 @@ def intake(request):
             match = re.search(rf"\b{subject}\s+fotoğrafı\s+{photo_status}\b", words)
             if match:
                 facts[field] = match[1] not in ("yok", "eksik")
-        if re.search(r"\bfotoğraf(?:lar)?\s+yok\b", words):
+        if re.search(r"\bfotoğraf(?:lar|ım|ımız)?\s+yok\b", words):
             for field in ("urun_fotografi_var", "ambalaj_fotografi_var"):
                 facts.setdefault(field, False)
     elif flow == "hygiene":
@@ -152,6 +162,15 @@ def inbox_customer_facts(messages):
         if detected_flow and (flow is None or detected_flow != "standard"):
             flow = detected_flow
         facts.update({key: value for key, value in detected.items() if value is not None})
+        words = request.translate(str.maketrans({"I": "ı", "İ": "i"})).lower()
+        if re.search(r"\bfotoğraf(?:ım|ımız|lar)? yok\b", words):
+            facts.setdefault("urun_fotografi_var", False)
+            facts.setdefault("ambalaj_fotografi_var", False)
+        for field, subject in (("urun_fotografi_var", r"ürün(?:ün)?"),
+                               ("ambalaj_fotografi_var", r"(?:dış )?ambalaj(?:ın|ı)?")):
+            if re.search(rf"\b{subject}[^.!?\n]{{0,35}}(?:fotoğraf(?:ı|ım)? yok|fotoğraf(?:ını)? çekemiyorum)\b", words):
+                if facts.get(field) is not True:
+                    facts[field] = False
         for filename in mail["attachments"]:
             if not filename or not re.search(r"\.(?:jpe?g|png|webp|heic)$", filename, re.I):
                 continue
@@ -212,6 +231,7 @@ def reply(db_path, payload, employee_id=None):
                                     "correction_only": True}
                         if check["status"] != "verified":
                             raise ValueError(check["message"])
+                        command["scenario"]["return_window_days_elapsed"] = check["return_window_days_elapsed"]
                         record = check["record"]
                         command["scenario"]["order_record"] = record
                         detected_flow, customer_facts = inbox_customer_facts(claims.get("customer_messages", []))
@@ -259,7 +279,10 @@ def reply(db_path, payload, employee_id=None):
             command["facts"]["siparis_no_var"] = True
             command["facts"].pop("teslimattan_sonra_gun", None)
             if record["delivery_date"]:
-                command["facts"]["teslimattan_sonra_gun"] = (date.today() - parse_order_date(record["delivery_date"])).days
+                elapsed = command["scenario"].get("return_window_days_elapsed")
+                command["facts"]["teslimattan_sonra_gun"] = elapsed if elapsed is not None else (
+                    date.today() - parse_order_date(record["delivery_date"])
+                ).days
         if action in ("discuss", "revise"):
             state = graph.get_state(config).values
             if not state.get("scenario"):
@@ -395,7 +418,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_content(200, "text/html; charset=utf-8", PAGE.read_bytes())
 
     def do_POST(self):
-        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/inbox", "/api/admin/documents", "/api/admin/orders"):
+        if self.path not in ("/api/account", "/api/refund", "/api/mail", "/api/inbox",
+                             "/api/prompt", "/api/admin/documents", "/api/admin/orders"):
             self.send_error(404)
             return
         port = self.server.server_port
@@ -480,6 +504,12 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path != "/api/account":
                 if account is None:
                     status, result = 401, {"error": "Devam etmek için oturum aç."}
+                elif self.path == "/api/prompt":
+                    if account[2] != "employee":
+                        status, result = 403, {"error": "Prompt Geliştirici için çalışan hesabıyla giriş yap."}
+                    else:
+                        with closing(sqlite3.connect(self.server.db_path)) as db:
+                            result = develop(db, uuid4().hex, payload)
                 elif self.path == "/api/refund":
                     result = reply(self.server.db_path, payload, account[0])
                 elif self.path == "/api/inbox":
@@ -519,6 +549,7 @@ class Handler(BaseHTTPRequestHandler):
                             else:
                                 for field in ("purchase_date", "delivery_date"):
                                     snapshot[field] = stored_order_date(snapshot[field])
+                                snapshot["product"] = catalog_product_name(snapshot["product"])
                                 if check["status"] != "verified" or snapshot != check["record"]:
                                     raise ValueError("Sipariş kaydı değişti. Gelen mailleri yenileyip taslağı yeniden hazırla.")
                             if payload.get("recipient", "").strip().casefold() != claims["sender"]:

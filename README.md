@@ -1,98 +1,93 @@
-# Netle
+# NETLE
 
-Netle, BTK Akademi Yapay Zekâ Kariyer Atölyesi için geliştirilen yerel bir prompt ajanı prototipidir. Müşteri hizmetleri çalışanının serbest metinle yazdığı iade isteğini netleştirir, yönetici tarafından onaylanmış şirket dosyalarında ilgili kuralları bulur ve düzenlenebilir bir müşteri yanıtı taslağı hazırlar. `ornek-veri` altındaki kurgusal Luma Ev belgeleri terminal demo ve karşılaştırma senaryolarında kullanılır.
+NETLE, BTK Akademi Yapay Zekâ Kariyer Atölyesi kapsamında geliştirilen yerel bir müşteri hizmetleri prototipidir. Çalışanın isteğini netleştirir, yönetici onaylı şirket belgelerinden ilgili kuralları bulur ve bu bilgileri görev promptuna veya müşteri yanıtı taslağına dönüştürür.
 
-## Kurulum ve çalıştırma
+| Ekran | İş akışı |
+|---|---|
+| **İade Asistanı** | Gmail iade kutusundan vaka açar, sisteme aktarılmış sipariş bilgilerini kontrol eder, eksik bilgileri sorar ve düzenlenebilir bir müşteri yanıtı taslağı hazırlar. SMTP yapılandırılmışsa çalışan taslağı inceleyip gönderebilir. |
+| **Prompt Geliştirici** | Serbest metinle yazılan müşteri hizmetleri isteğini netleştirir. Geliştirilmiş promptu, değişikliklerin gerekçelerini ve belge sürümlerini gösterir. Çalışan promptu kopyalayabilir ve isteğe bağlı olarak yanıt taslağını önizleyebilir. |
 
-Python 3.13 ve Ollama ile Windows üzerinde test edildi. Ollama çalışırken proje klasörünü PowerShell veya VS Code'da aç. Modeller henüz yüklü değilse ilk iki komutu çalıştır:
+Yönetici çalışan hesaplarını, sipariş CSV aktarımlarını ve şirket belgelerini yönetir. Yüklenen PDF, DOCX, TXT ve Markdown belgeleri yönetici onayından sonra aramada kullanılır. Yeni sürüm onaylandığında önceki sürüm SQLite’ta arşivlenir. Metin katmanı içeren PDF’ler desteklenir.
+
+## Kurulum
+
+Windows üzerinde Python 3.13 ve Ollama ile çalıştırılabilir. Ollama çalışırken proje klasöründe şu komutları kullan.
 
 ```powershell
 ollama pull qwen2.5:1.5b
 ollama pull embeddinggemma:latest
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Proje kökünde yerel bir `.env` dosyası oluştur. Örnek kullanıcı adını değiştirebilir ve kendi yönetici parolanı girebilirsin.
+
+```dotenv
+NETLE_ADMIN_USERNAME=ornek.yonetici
+NETLE_ADMIN_PASSWORD=
+```
+
+```powershell
 .\.venv\Scripts\python.exe netle_web.py
 ```
 
-[Netle’yi tarayıcıda aç](http://127.0.0.1:8000). VS Code'da terminal komutu yerine **Run and Debug → Netle’yi Başlat → ▶** seçeneğini veya **F5** tuşunu kullanabilirsin. Bu seçenek, Python ve Python Debugger eklentileriyle proje klasöründeki `.venv` ortamını kullanır.
+[NETLE’yi aç](http://127.0.0.1:8000). VS Code ile çalışıyorsan **Run and Debug → Netle’yi Başlat** seçeneğini de kullanabilirsin.
 
-`.env` dosyasında `NETLE_ADMIN_USERNAME` ve `NETLE_ADMIN_PASSWORD` alanlarını belirle. Uygulama açıldığında bu bilgilerle yönetici hesabı oluşturulur veya güncellenir. Yönetici, paneldeki **Çalışan ekle** formundan kullanıcı adı ve ilk parola belirler. `.env` Git'e eklenmez. Yönetici hesabı **Şirket belgeleri** bölümünden PDF, DOCX, TXT veya MD dosyalarını yükleyebilir. Dosyanın metni incelendikten ve yönetici onayladıktan sonra belge RAG aramasında etkinleşir. Aynı başlıkta yeni içerik yüklenirse eski ve yeni metin karşılaştırma için gösterilir; yeni sürüm ancak onayla etkinleşir. Önceki sürümler SQLite'ta arşivlenir.
+## İlk deneme · Prompt Geliştirici
 
-İade kararı içeren müşteri taslakları yalnızca etkin, yönetici onaylı dosyalardan getirilen pasajları kullanır. Onaylı belge yoksa veya ilgili bilgi bulunamazsa taslak oluşturulmaz. Orijinal dosya, çıkarılan metin ve sürüm geçmişi yerel `netle.sqlite3` veritabanında saklanır. PDF metin içermelidir; taranmış belge için OCR henüz desteklenmiyor. İlk dosya yüklemesinden önce `pip install -r requirements.txt` komutuyla PDF kitaplığı kurulur.
+1. Yönetici hesabıyla giriş yap. **Çalışan ekle** bölümünde bir deneme hesabı oluştur. **Şirket belgeleri** bölümüne [kurgusal destek rehberini](ornek-veri/belgeler/destek-rehberi.md) yükle ve onayla.
+2. Çalışan hesabıyla giriş yapıp **Prompt Geliştirici** ekranını aç. Örneğin “Müşteri kupasının kırık geldiğini ve bir fotoğraf gönderdiğini söylüyor. Hangi fotoğraf olduğu belirtilmemiş. Eksik belgeleri isteyen kısa bir müşteri yanıtı için prompt hazırla.” yaz.
+3. Sorulan bilgiyi tamamla. Örneğin ürün fotoğrafının ulaştığını, dış ambalaj fotoğrafının eksik olduğunu ve sipariş numarasının bilindiğini belirt. Oluşturulan promptu, gerekçeleri ve belge sürümünü incele. İstersen **Yanıt taslağını da önizle** seçeneğini kullan.
 
-Hesaplar, roller ve oturumlar SQLite'ta saklanır. Çalışanlar giriş ekranından kendi hesaplarını oluşturamaz.
+Bu akış Gmail veya SMTP kurulumu gerektirmez.
 
-Kullanıcı adı unutulursa SQLite içindeki `employees` tablosundan görülebilir. `.env` ayarlıysa yönetici parolasını bu dosyada güncelleyip uygulamayı yeniden başlat. Yönetici, parolasını unutan çalışan için panelden geçici parola oluşturabilir.
+### Canlı pilot gözlemi
 
-## Gmail iade kutusu
+Gerçek Ollama modelleriyle, kişisel veri içermeyen ve ayrı bir test rehberine dayanan kırık kupa vakası denendi. Test sırasında modelin yanıtlanmış soruyu tekrarladığı görüldü. Düzeltmeden sonra akış hangi fotoğrafın ulaştığını sordu ve yanıtı onaylı rehberle birleştirerek kaynaklı bir prompt üretti. Önizleme ambalaj ve kargo etiketi fotoğraflarıyla birlikte daha önce ulaşan ürün fotoğrafını da yeniden istedi. Bu vaka, önizleme metninin çalışan tarafından kontrol edilmesi gerektiğini gösterdi.
 
-Gmail hesabında `Netle İade` etiketini oluştur ve test mesajına uygula. Hesap sahibi, iki adımlı doğrulama açıkken oluşturduğu Google uygulama şifresini yerel `.env` dosyasına eklemelidir.
+## İade Asistanı bağlantıları
+
+### Gmail gelen kutusu
+
+Deneme hesabında `Netle İade` etiketi oluştur ve bir test iletisine uygula. Gmail uygulama parolasını yerel `.env` dosyasına gir. `NETLE_GMAIL_EMPLOYEE`, gelen kutusunu kullanacak NETLE çalışan hesabıdır.
 
 ```dotenv
-NETLE_GMAIL_ACCOUNT=hesap@gmail.com
+NETLE_GMAIL_ACCOUNT=
 NETLE_GMAIL_APP_PASSWORD=
-NETLE_GMAIL_EMPLOYEE=netle_kullanici_adi
+NETLE_GMAIL_EMPLOYEE=
 ```
 
-`NETLE_GMAIL_EMPLOYEE`, Gmail hesabına erişecek çalışanın Netle kullanıcı adıdır. Çalışan oturum açtığında veya **Gelen mailleri yenile** düğmesine bastığında Netle etiketteki son 15 mesajı salt okunur getirir. Filtreyi oluşturduktan önce gelen test mesajına etiketi elle uygulayabilirsin. Gmail alma ayarları, aşağıdaki SMTP gönderme ayarlarından ayrıdır.
+NETLE etiketteki son 15 iletiyi okur. Sipariş kontrolünü denemek için yönetici panelinden `order_id,customer_email,product,purchase_date,delivery_date` başlıklarına sahip kurgusal bir CSV aktar.
 
-## E-posta gönderimi
+### SMTP gönderimi
 
-Netle, **Gönder** düğmesine basıldığında alıcı, konu ve düzenlenmiş taslağı şirketin SMTP sunucusuna iletir. Proje geçerli bir posta hesabı veya gönderim yetkisi olan bir SMTP rölesi gerektirir. Yerel `.env` ayarları:
+İade Asistanı’nda çalışan **Gönder** düğmesine bastığında düzenlenmiş taslak yapılandırılan SMTP sunucusu üzerinden iletilir. Aşağıdaki adresler örnek değerlerdir.
 
 ```dotenv
-NETLE_SMTP_HOST=smtp.sirketiniz.example
+NETLE_SMTP_HOST=smtp.example.com
 NETLE_SMTP_PORT=587
 NETLE_SMTP_TLS=starttls
-NETLE_SMTP_FROM=destek@sirketiniz.example
-NETLE_SMTP_USER=destek@sirketiniz.example
+NETLE_SMTP_FROM=destek@example.com
+NETLE_SMTP_USER=destek@example.com
 NETLE_SMTP_PASSWORD=
 ```
 
-Sunucu örtük TLS kullanıyorsa `NETLE_SMTP_TLS=ssl` ve sağlayıcının belirttiği portu (genellikle 465) kullan. Kimlik doğrulama gerektirmeyen yetkili bir rölede kullanıcı adı ve parola boş kalabilir. Gönderimi denerken denetiminde olan bir Gmail hesabından test iletisi gönder.
+Örtük TLS kullanılıyorsa `NETLE_SMTP_TLS=ssl` ve sunucunun belirttiği port kullanılır. Gönderimi kontrol ettiğin bir test hesabıyla dene.
 
-## Demo
+## Teknik yapı ve değerlendirme
 
-| İstek örneği | Beklenen davranış |
-|---|---|
-| “Müşteri kahve makinesini iade etmek istiyor.” | İlgili onaylı belgelerdeki kurallara göre eksik bilgileri sorar ve taslak hazırlar. |
-| “Vazo kırık geldi.” | Yalnızca onaylı belgelerde dayanağı varsa hasarlı teslimat için taslak üretir. |
-| “İlgili bir iade kuralı bulunmayan ürün.” | Kaynak eşleşmesi yeterli değilse taslak oluşturmaz. |
+- **RAG.** Onaylı belgelerin ilgili bölümleri Ollama embedding modeliyle bulunur. Belge vektörleri yerel SQLite’ta yeniden kullanılabilir.
+- **LangGraph.** İade akışı eksik bilgi olduğunda durur ve çalışanın cevabıyla aynı vakadan devam eder.
+- **Ollama ve SQLite.** Model çağrılarının token ve süre bilgileri `model_calls` tablosunda tutulur. Uygulama hesapları, yüklenen belgeler ve sipariş kayıtları yerel veritabanında saklanır.
 
-## Ders kavramları uygulamada
-
-| Kavram | Netle’deki karşılığı |
-|---|---|
-| RAG ve embedding | Yönetici onaylı dosyaların metin bölümleri Ollama ile vektörlere dönüştürülür ve kosinüs benzerliğiyle sıralanır. Belge vektörleri, içerik veya embedding modeli değişene kadar SQLite'tan yeniden kullanılır. |
-| Ajan akışı ve LangGraph | Açık ifadelerden iade türü seçilir. Eksik bilgi varsa akış durur ve kullanıcı yanıtıyla aynı oturumdan devam eder. |
-| Prompt iyileştirme ve yerel LLM | İlgili politika, bilinen bilgiler ve beklenen karar bir görev promptuna dönüştürülür. Ollama müşteri mesajı üretir. |
-| İnsan onayı ve ölçüm | Müşteri taslağı çalışan tarafından incelenip gönderilir. Girdi ve çıktı tokenları ile çağrı süreleri SQLite'ta izlenir. |
-
-## Önceki demo ölçümü
-
-Bu tablo yönetici belge paneli eklenmeden önce kurgusal Luma Ev belgeleriyle yapılan tek seferlik demo ölçümüdür. Güncel arayüzün yüklenen şirket belgeleriyle alacağı sonuçları göstermez. `compare_refund.py` karşılaştırma betiği de aynı eski demo korpusunu kullanır.
-
-| Yöntem | Kalite puanı /36 | Toplam üretim tokenı | Toplam üretim süresi |
-|---|---:|---:|---:|
-| İlk istek | 4 | 1.166 | 19,33 sn |
-| Doğrudan RAG | 6 | 3.106 | 22,60 sn |
-| Netle | 36 | 3.192 | 17,01 sn |
-
-Bu eski ölçümde ortak sorgu embedding’leri ayrıca 450 token ve 12,65 saniye kullandı. Yeni belgelerde gerçek kalite ve hız ölçümü ayrıca yapılmalıdır.
-
-Karşılaştırmayı yeniden çalıştırmak için:
+İlk istek, doğrudan RAG ve NETLE karşılaştırmasını kurgusal Luma Ev demo belgeleriyle çalıştırmak için:
 
 ```powershell
 .\.venv\Scripts\python.exe compare_refund.py --all
 ```
 
-Tek senaryo için `--scenario I04` kullanılabilir. Taslaklar `comparison_answers`, çağrı ölçümleri `model_calls` tablosuna yazılır. `netle.sqlite3` yerel kullanımda oluşur ve Git'e eklenmez.
+Bu karşılaştırma, web panelinden yüklenen güncel pilot belgelerinden ayrı bir terminal demosudur. Senaryolar ve doğruluk, eksiksizlik, biçim rubriği [örnek veri rehberinde](ornek-veri/README.md) yer alır.
 
-## Pilotun sınırları
+## Veri ve GitHub paylaşımı
 
-- Serbest metin yönlendirmesi açık Türkçe ifadelere dayanır. Bazı dolaylı anlatımlarda bilgi metinde yer alsa bile Netle tekrar sorabilir.
-- Dosyadan metin çıkarımı PDF, DOCX, TXT ve MD ile sınırlıdır. Taranmış PDF'lerde OCR yapılmaz.
-- Kaynak dayanağını model yanıtından doğrulamak için kurallar eklenmiştir; yerel dil modelinin hatalı çıkarım yapma olasılığı tamamen ortadan kalkmaz. Yönetici yüklenen belge metnini ve sürüm değişikliklerini onaylamalıdır.
-- Sistem müşteri mesajı taslağı hazırlar. İade kaydı açma ve müşteriye mesaj gönderme işlemleri demo kapsamı dışındadır.
-
-[Örnek belgeler, senaryolar ve terminal demoları](ornek-veri/README.md)
+Public depoda kurgusal belgeler, siparişler ve e-postalar kullan. Yerel `.env` dosyasını, SQLite veritabanını ve yan dosyalarını, müşteri e-postalarını, gerçek sipariş CSV’lerini, şirkete ait özel belgeleri ve bu verileri içeren ekran görüntülerini depoya ekleme. Yayından önce dosyaların yanı sıra commit geçmişindeki yazar, işleyen ve e-posta bilgilerini de kontrol et.

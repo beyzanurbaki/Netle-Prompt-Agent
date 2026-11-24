@@ -4,9 +4,22 @@ import csv
 import io
 import json
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 
+SINGLE_PIECE_PRODUCTS = (
+    "Seramik Kupa", "Kapaksız Cam Sürahi", "Bambu Servis Tepsisi",
+    "Seramik Kahvaltı Tabağı", "Porselen Yemek Tabağı", "Seramik Çorba Kasesi",
+    "Cam Su Bardağı", "Cam Salata Kasesi", "Kapaksız Cam Fırın Kabı",
+    "Bambu Kesme Tahtası", "Ahşap Servis Kaşığı", "Silikon Spatula",
+    "Paslanmaz Çelik Kepçe", "Tekli Pamuklu Mutfak Havlusu", "Tekli Mantar Bardak Altlığı",
+)
+LEGACY_PRODUCT_NAMES = {
+    "Cam Sürahi": "Kapaksız Cam Sürahi",
+    "Bambu Tepsi": "Bambu Servis Tepsisi",
+}
+RETURN_WINDOW_DAYS = 14
+TURKEY_TIME = timezone(timedelta(hours=3))
 COLUMNS = ("order_id", "customer_email", "product", "purchase_date", "delivery_date")
 ORDER_ID = re.compile(r"[A-Z0-9][A-Z0-9-]{0,63}", re.ASCII)
 ORDER_IN_MAIL = re.compile(
@@ -26,15 +39,18 @@ PURCHASE_IN_MAIL = re.compile(
 PRODUCT_IN_MAIL = re.compile(r"^\s*ürün(?:\s+adı)?\s*:\s*([^\r\n]+)", re.IGNORECASE | re.MULTILINE)
 
 
+WRONG_DELIVERY = re.compile(
+    r"\byanlış (?:bir )?ürün\s+(?:geldi|ulaştı|gönderildi|teslim edildi)\b"
+    r"|\bsipariş (?:ettiğim|etmiştim)[^\n.]{0,100}(?:,|\b(?:yerine|ama|ancak)\b)[^\n.]{0,100}\b(?:geldi|ulaştı)\b"
+)
+
+
 def setup_orders(db):
     db.execute("SAVEPOINT setup_order_products")
     try:
         db.execute("""CREATE TABLE IF NOT EXISTS products (
             products_id INTEGER PRIMARY KEY, products_name TEXT NOT NULL UNIQUE
         )""")
-        db.executemany("INSERT OR IGNORE INTO products VALUES (?, ?)", (
-            (1, "Seramik Kupa"), (2, "Cam Sürahi"), (3, "Bambu Tepsi"),
-        ))
         columns = {column[1] for column in db.execute("PRAGMA table_info(order_records)")}
         if "product" in columns:
             db.execute("ALTER TABLE order_records RENAME TO legacy_order_records")
@@ -51,6 +67,18 @@ def setup_orders(db):
                 SELECT o.order_id, o.customer_email, p.products_id, o.purchase_date, o.delivery_date
                 FROM legacy_order_records AS o JOIN products AS p ON p.products_name = o.product""")
             db.execute("DROP TABLE legacy_order_records")
+        for old_name, product_name in LEGACY_PRODUCT_NAMES.items():
+            previous = db.execute("SELECT products_id FROM products WHERE products_name = ?", (old_name,)).fetchone()
+            if previous is None:
+                continue
+            current = db.execute("SELECT products_id FROM products WHERE products_name = ?", (product_name,)).fetchone()
+            if current:
+                db.execute("UPDATE order_records SET products_id = ? WHERE products_id = ?", (current[0], previous[0]))
+                db.execute("DELETE FROM products WHERE products_id = ?", previous)
+            else:
+                db.execute("UPDATE products SET products_name = ? WHERE products_id = ?", (product_name, previous[0]))
+        db.executemany("INSERT OR IGNORE INTO products (products_name) VALUES (?)",
+                       ((name,) for name in SINGLE_PIECE_PRODUCTS))
         for column in ("purchase_date", "delivery_date"):
             db.execute(f"""UPDATE order_records
                 SET {column} = substr({column}, 9, 2) || '.' ||
@@ -104,7 +132,7 @@ def import_orders(db, content):
                     or parse_order_date(purchased) > date.today()
                     or (delivered and not parse_order_date(purchased) <= parse_order_date(delivered) <= date.today())):
                 raise ValueError
-            rows[order_id] = (order_id, email, product, stored_order_date(purchased), stored_order_date(delivered))
+            rows[order_id] = (order_id, email, catalog_product_name(product), stored_order_date(purchased), stored_order_date(delivered))
     except (ValueError, AttributeError, csv.Error):
         raise ValueError(f"CSV satır {reader.line_num} geçersiz veya yinelenen sipariş numarası içeriyor.") from None
     if not rows:
@@ -127,6 +155,14 @@ def order_count(db):
 
 def normalized(value):
     return " ".join(value.translate(str.maketrans({"I": "ı", "İ": "i"})).lower().split())
+
+
+CATALOG_PRODUCT_NAMES = {normalized(name): name for name in SINGLE_PIECE_PRODUCTS}
+CATALOG_PRODUCT_NAMES.update({normalized(old): new for old, new in LEGACY_PRODUCT_NAMES.items()})
+
+
+def catalog_product_name(value):
+    return CATALOG_PRODUCT_NAMES.get(normalized(value), value)
 
 
 def claimed_dates(pattern, text):
@@ -157,8 +193,11 @@ def mail_claims(mail):
         ids = explicit_ids or ids
         delivery_dates = claimed_dates(DELIVERY_IN_MAIL, item["body"]) or delivery_dates
         purchase_dates = claimed_dates(PURCHASE_IN_MAIL, item["body"]) or purchase_dates
-        products = {normalized(value) for value in PRODUCT_IN_MAIL.findall(item["body"])} or products
-    return {"sender": sender, "order_ids": sorted(ids), "delivery_dates": sorted(delivery_dates),
+        if not WRONG_DELIVERY.search(normalized(item["body"])):
+            products = {normalized(value) for value in PRODUCT_IN_MAIL.findall(item["body"])} or products
+    arrivals = [item["arrived"] for item in sources if item.get("arrived", 0) > 0]
+    first_received = datetime.fromtimestamp(min(arrivals), TURKEY_TIME).date().isoformat() if arrivals else None
+    return {"sender": sender, "first_received": first_received, "order_ids": sorted(ids), "delivery_dates": sorted(delivery_dates),
             "purchase_dates": sorted(purchase_dates), "products": sorted(products)}
 
 
@@ -179,9 +218,16 @@ def verify_order(db, claims):
         differences.append("Müşterinin belirttiği satın alma tarihi sipariş kaydından farklı.")
     if claims["delivery_dates"] and record["delivery_date"] and {stored_order_date(value) for value in claims["delivery_dates"]} != {stored_order_date(record["delivery_date"])}:
         differences.append("Müşterinin belirttiği teslim tarihi sipariş kaydından farklı.")
-    if claims["products"] and set(claims["products"]) != {normalized(record["product"])}:
+    if claims["products"] and {normalized(catalog_product_name(value)) for value in claims["products"]} != {normalized(catalog_product_name(record["product"]))}:
         differences.append("Müşterinin belirttiği ürün sipariş kaydındaki ürün adıyla eşleşmiyor.")
+    elapsed = None
+    if record["delivery_date"] and claims.get("first_received"):
+        days = (parse_order_date(claims["first_received"]) - parse_order_date(record["delivery_date"])).days
+        if days >= 0:
+            elapsed = days
     return {"status": "review" if differences else "verified", "record": record,
+            "return_window_days_elapsed": elapsed,
+            "within_return_window": elapsed <= RETURN_WINDOW_DAYS if elapsed is not None else None,
             "message": " ".join(differences) or "Sipariş numarası ve gönderen adresi kayıtla eşleşti."}
 
 

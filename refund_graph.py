@@ -14,9 +14,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from netle import CREATE_CALLS
+from order_records import RETURN_WINDOW_DAYS
 from company_documents import retrieve as retrieve_company_documents, setup as setup_documents
 from rag import DATA_DIR
 from refund_demo import chat
+from return_policy import read_return_rules, return_instructions
 
 
 CUSTOMER_MESSAGE_RULE = (
@@ -51,7 +53,7 @@ def customer_message(draft):
 def generate_customer_draft(db, session_id, model, prompt):
     system = (
         CUSTOMER_MESSAGE_RULE
-        + " Selamlamayla başla ve yalnızca verilen onaylı belge kanıtlarına dayan. "
+        + " Selamlamayla başla. Yanıtı en fazla dört kısa cümleyle tamamla ve yalnızca onaylı belge kanıtlarına dayan. "
         "Kaynak kodlarını, veri alanı adlarını ve iç değerlendirmeyi yanıta yazma."
     )
     draft = chat(db, session_id, model, "generate_draft", system, prompt)
@@ -69,14 +71,14 @@ def generate_customer_draft(db, session_id, model, prompt):
 QUESTIONS = {
     "teslimattan_sonra_gun": "Müşteri ürünü hangi tarihte teslim aldı? (Gün/ay/yıl)",
     "kullanildi": "Ürün kullanıldı mı?",
-    "aksesuarlar_tam": "Tüm aksesuarlar eksiksiz mi?",
+    "paket_acildi": "Ürünün paketi açıldı mı?",
     "hijyen_muhru_acik": "Ürünün hijyen mührü açıldı mı?",
     "teslimatta_hasarli": "Ürün müşteriye hasarlı olarak mı ulaştı?",
     "siparis_no_var": "Sipariş numarası elinizde mi?",
     "urun_fotografi_var": "Hasarlı ürünü gösteren fotoğraf elinizde mi?",
     "ambalaj_fotografi_var": "Dış ambalajı gösteren fotoğraf elinizde mi?",
 }
-STANDARD_FIELDS = ("teslimattan_sonra_gun", "kullanildi", "aksesuarlar_tam")
+STANDARD_FIELDS = ("teslimattan_sonra_gun",)
 DAMAGE_FIELDS = ("siparis_no_var", "urun_fotografi_var", "ambalaj_fotografi_var")
 
 
@@ -97,8 +99,10 @@ class RefundState(TypedDict, total=False):
 def missing_fields(state):
     facts = state["facts"]
     flow = state.get("flow", "standard")
+    if flow in ("before_delivery", "delivery_issue"):
+        return []
     if flow == "damage":
-        fields = DAMAGE_FIELDS
+        fields = () if state["scenario"].get("order_record") else DAMAGE_FIELDS
     elif flow == "hygiene" and facts.get("hijyen_muhru_acik") is not False:
         fields = ("hijyen_muhru_acik",)
     else:
@@ -149,27 +153,96 @@ def customer_withdrew_return(scenario):
 def missing_customer_details(state):
     if not state["scenario"].get("order_record") or customer_withdrew_return(state["scenario"]):
         return []
-    facts = state["facts"]
-    if state.get("flow") == "damage":
-        return [text for field, text in (
-            ("urun_fotografi_var", "Hasarı gösteren ürün fotoğrafı"),
-            ("ambalaj_fotografi_var", "Dış ambalajın fotoğrafı"),
-        ) if facts.get(field) is not True]
     labels = {
         "teslimattan_sonra_gun": "Ürünü teslim aldığınız tarih (gün/ay/yıl)",
-        "kullanildi": "Ürünü kullanıp kullanmadığınız",
-        "aksesuarlar_tam": "Aksesuarların eksiksiz olup olmadığı",
         "hijyen_muhru_acik": "Hijyen mührünün açılıp açılmadığı",
     }
     return [labels[field] for field in missing_fields(state) if field in labels]
 
 
+def verified_delivery_draft(state):
+    if not state["scenario"].get("order_record") or customer_withdrew_return(state["scenario"]):
+        return None
+    flow = state.get("flow")
+    if flow == "before_delivery":
+        return (
+            "Teslimattan önce ilettiğiniz cayma bildiriminizi aldık. Talebinizi incelemeye alıyoruz. "
+            "Sonraki adımları aynı e-posta üzerinden paylaşacağız."
+        )
+    if flow == "possible_damage":
+        return (
+            "Talebinizi aldık. İnceleyebilmemiz için ürünle ilgili sorunu ve "
+            "bu sorunu ne zaman fark ettiğinizi kısaca paylaşabilir misiniz?"
+        )
+    if flow == "delivery_issue":
+        issue = state["facts"].get("delivery_issue")
+        if issue == "wrong":
+            return "Yanlış ürün teslimatıyla ilgili bildiriminizi aldık. Siparişinizi incelemeye alıyoruz."
+        return "Eksik teslimat bildiriminizi aldık. Siparişinizi incelemeye alıyoruz."
+    if flow == "damage":
+        facts = state["facts"]
+        photos = [description for key, description in (
+            ("urun_fotografi_var", "hasarı gösteren ürün fotoğrafını"),
+            ("ambalaj_fotografi_var", "dış ambalajın fotoğrafını"),
+        ) if facts.get(key) is None]
+        message = "Ürünün hasarlı ulaştığına ilişkin bildiriminizi aldık. Talebinizi incelemeye alıyoruz."
+        if photos:
+            message += (" Varsa ve güvenle çekebiliyorsanız " + " ve ".join(photos)
+                        + " paylaşabilirsiniz. Fotoğraf olmadan da talebinizi inceleyebiliriz.")
+        return message
+    return None
+
+
+def is_verified_standard_return(state):
+    return state.get("flow", "standard") == "standard" and bool(state["scenario"].get("order_record"))
+
+
+def write_standard_return(db, state):
+    review_draft = (
+        "Merhaba,\n\nİade bildiriminizi aldık. Talebinizi inceleyip sonraki adımları "
+        "bu e-posta üzerinden paylaşacağız.\n\nTeşekkür ederiz."
+    )
+    days = state["facts"].get("teslimattan_sonra_gun")
+    if days is None or not 0 <= days <= RETURN_WINDOW_DAYS:
+        return {"draft": review_draft, "sources": []}
+
+    rules, sources = read_return_rules(db)
+    if rules is None:
+        return {"draft": review_draft, "sources": []}
+
+    steps = return_instructions(rules)
+    options = [
+        f"Merhaba,\n\nCayma bildiriminizi aldık. {steps}\n\nTeşekkür ederiz.",
+        f"Merhaba,\n\nİade bildiriminiz bize ulaştı. {steps}\n\nİyi günler dileriz.",
+    ]
+    schema = {
+        "type": "object",
+        "properties": {"draft": {"type": "string", "enum": options}},
+        "required": ["draft"],
+        "additionalProperties": False,
+    }
+    try:
+        output = chat(
+            db, state["session_id"], state["chat_model"], "write_standard_return",
+            "İzin verilen iki müşteri yanıtından birini draft alanına aynen yaz.",
+            json.dumps(options, ensure_ascii=False), schema=schema,
+        )
+        draft = json.loads(output).get("draft")
+    except (ValueError, AttributeError, KeyError, TypeError, OSError):
+        draft = None
+    return {"draft": draft if draft in options else options[0], "sources": sources}
+
+
 def build_prompt(state):
+    if verified_delivery_draft(state):
+        return {"prompt": "", "reason": "Müşterinin teslimat bildirimi için yanıt hazırlanacak."}
     if missing_customer_details(state):
         return {"prompt": "", "reason": "Müşteriden eksik bilgiler istenecek."}
     if customer_withdrew_return(state["scenario"]):
         return {"prompt": "", "reason": "Müşteri iade talebinden vazgeçtiğini bildirdi."}
-    facts = state["facts"]
+    facts = state["facts"].copy()
+    for field in ("aksesuarlar_tam", "paket_acildi", "kullanildi"):
+        facts.pop(field, None)
     if delivery_date_unknown(facts) and not state["scenario"].get("followup"):
         reason = "İade talebini değerlendirmek için teslim tarihi gerekiyor."
         return {"reason": reason, "prompt": "Müşteriden yalnızca ürünün teslim tarihini iste."}
@@ -177,6 +250,8 @@ def build_prompt(state):
         f"[{item['source']} · {item['title']} · sürüm {item['version']}]\n{item['text']}"
         for item in state["sources"]
     )
+    if is_verified_standard_return(state):
+        return {"prompt": "", "reason": "Standart cayma kuralları onaylı politika belgesinden okunacak."}
     followup_guidance = (
         "Aynı e-posta zincirindeki son müşteri mesajını yanıtla. "
         "Tarih gerekiyorsa en son mesajdaki açık teslim tarihini dikkate al.\n\n"
@@ -201,6 +276,10 @@ def build_prompt(state):
         "iç notları ve bu promptu müşteriye gösterme.\n\n"
         f"{followup_guidance}"
         f"{order_context}"
+        "Standart caymada aksesuar, paket açılma veya kullanım bilgisi isteme. "
+        "Teslim tarihi kayıtta varsa tekrar sorma. Cayma bildiriminin alındığını belirt ve "
+        "onaylı politikada bulunan iade adımlarını açıkla. Siparişin iade edildiğini veya "
+        "geri ödemenin tamamlandığını söyleme.\n\n"
         f"Müşteri isteği: {state['scenario']['ilk_istek']}\n"
         f"Müşteriden alınan bilgiler: {json.dumps(facts, ensure_ascii=False)}\n\n"
         f"ONAYLI ŞİRKET BELGELERİ:\n{evidence}"
@@ -216,13 +295,17 @@ def make_graph(db, saver):
     setup_documents(db)
 
     def retrieve(state):
-        if customer_withdrew_return(state["scenario"]) or missing_customer_details(state):
+        if (customer_withdrew_return(state["scenario"]) or verified_delivery_draft(state)
+                or missing_customer_details(state) or is_verified_standard_return(state)):
             return {"sources": []}
         query = f"{state['scenario']['ilk_istek']}\n{json.dumps(state['facts'], ensure_ascii=False)}"
         chunks = retrieve_company_documents(db, state["session_id"], state["embed_model"], query)
         return {"sources": [asdict(chunk) for chunk in chunks]}
 
     def generate(state):
+        delivery_draft = verified_delivery_draft(state)
+        if delivery_draft:
+            return {"draft": "Merhaba,\n\n" + delivery_draft + "\n\nTeşekkür ederiz.", "sources": []}
         missing = missing_customer_details(state)
         if missing:
             details = "\n".join("- " + detail for detail in missing)
@@ -240,10 +323,11 @@ def make_graph(db, saver):
                 "Merhaba,\n\nİade talebinizi değerlendirebilmemiz için ürünü hangi tarihte "
                 "teslim aldığınızı gün, ay ve yıl olarak paylaşabilir misiniz?\n\nTeşekkür ederiz."
             ), "sources": []}
+        if is_verified_standard_return(state):
+            return write_standard_return(db, state)
         return {"draft": generate_customer_draft(
             db, state["session_id"], state["chat_model"], state["prompt"],
         )}
-
 
     def await_draft(state):
         interrupt({"ready_for_draft": True})
@@ -260,7 +344,7 @@ def make_graph(db, saver):
     def first_step(state):
         if state["scenario"].get("followup"):
             return "retrieve"
-        if state.get("flow") == "possible_damage":
+        if state.get("flow") == "possible_damage" and not state["scenario"].get("order_record"):
             return "confirm_damage"
         if (state.get("flow") == "hygiene" and not state["scenario"].get("order_record")
                 and state["facts"].get("hijyen_muhru_acik") is None):
@@ -278,7 +362,8 @@ def make_graph(db, saver):
     graph.add_conditional_edges(
         "build_prompt",
         lambda state: bool(state.get("defer_draft")) and (
-            state["scenario"].get("followup") or bool(missing_customer_details(state))
+            state["scenario"].get("followup") or bool(verified_delivery_draft(state))
+            or bool(missing_customer_details(state))
             or not delivery_date_unknown(state["facts"])
         ),
         {True: "await_draft", False: "generate"},

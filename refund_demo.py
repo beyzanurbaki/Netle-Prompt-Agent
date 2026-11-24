@@ -10,6 +10,10 @@ from netle import CREATE_CALLS, call_ollama
 from rag import DATA_DIR, embed, load_chunks, rank, scenario_query
 
 
+class ModelOutputLimitError(ValueError):
+    """Ollama exhausted its output budget on both attempts."""
+
+
 def chat(db, run_id, model, operation, system, user, *, schema=None):
     payload = {
         "model": model,
@@ -29,7 +33,7 @@ def chat(db, run_id, model, operation, system, user, *, schema=None):
         if response.get("done_reason") != "length":
             return response["message"]["content"].strip()
         payload["messages"][0]["content"] = system + " Yanıtı kısa tut ve son cümleyi tamamla."
-    raise ValueError("Model yanıtı tamamlayamadı. Yarım taslak gösterilmedi. Tekrar dene.")
+    raise ModelOutputLimitError("Model yanıtı tamamlayamadı. Yarım taslak gösterilmedi. Tekrar dene.")
 
 
 def improve_prompt(db, run_id, model, request, sources, source_ids):

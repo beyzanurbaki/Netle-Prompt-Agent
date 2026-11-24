@@ -1,16 +1,5 @@
 const inbox = id => document.querySelector('#inbox-' + id);
 const refundCases = new Map();
-const employeeResponses = {
-  'missing-document': {
-    label: 'Eksik belge',
-    message: detail => 'İade talebinizi aldık. İncelemeye devam edebilmemiz için aşağıdaki belgeyi bu e-postayı yanıtlayarak paylaşabilir misiniz?\n\n' + detail
-  },
-  rejected: {
-    label: 'Ret gerekçesi',
-    message: detail => 'İade talebinizi inceledik. Talebiniz aşağıdaki gerekçeyle onaylanmadı.\n\n' + detail
-  },
-  approved: {message: () => 'İade talebinizi inceledik ve onayladık.'}
-};
 let selectedRefundMail = null;
 let inboxMails = [];
 let showClosedCases = false;
@@ -41,8 +30,10 @@ function isClosedCase(mail) {
 
 function renderInboxList() {
   const visibleMails = inboxMails.filter(mail => isClosedCase(mail) === showClosedCases);
-  inbox('open').setAttribute('aria-pressed', String(!showClosedCases));
-  inbox('closed').setAttribute('aria-pressed', String(showClosedCases));
+  inbox('title').textContent = showClosedCases ? 'Kapanan iade talepleri' : 'Açık iade talepleri';
+  const visible = !document.getElementById('refund-work').hidden;
+  inbox('open').setAttribute('aria-pressed', String(visible && !showClosedCases));
+  inbox('closed').setAttribute('aria-pressed', String(visible && showClosedCases));
   const empty = inbox('filter-empty');
   empty.hidden = !inboxMails.length || Boolean(visibleMails.length);
   empty.textContent = showClosedCases ? 'Kapanan iade talebi yok.' : 'Açık iade talebi yok.';
@@ -81,19 +72,19 @@ function renderInbox() {
   renderInboxList();
   const mail = selectedRefundMail;
   const active = mail && refundCases.get(mail.id);
-  inbox('empty').hidden = Boolean(active);
+  inbox('conversation-panel').hidden = !active;
+  inbox('response-panel').hidden = !active;
   inbox('case').hidden = !active;
   inbox('draft-empty').hidden = Boolean(active?.hasDraft);
   inbox('draft-panel').hidden = !active?.hasDraft;
-  updateResponseOptions(active);
   inbox('draft-empty').textContent = !active ? 'Yanıt hazırlamak için bir iade e-postası seç.'
     : active.sent ? 'Bu e-postaya yanıt gönderildi.'
     : needsOrderCheck(mail) && !active.busy ? 'Sipariş bilgilerini kontrol et.'
     : mail.delivery_state === 'uncertain' ? 'Gönderim sonucu belirsiz. Posta kutusunu kontrol et.'
     : active.error ? 'Sohbet panelindeki işlem durumunu kontrol et.'
     : active.busy ? 'Netle çalışıyor…'
-    : active.questions ? 'Netle önerisi için sohbet panelindeki soruları yanıtla veya bir yanıt türü seç.'
-    : 'Yanıt oluştur’a basarak düzenlenebilir taslağı hazırla.';
+    : active.questions ? 'Taslak için sohbet panelindeki soruları yanıtla.'
+    : 'Netle önerisi hazırlanıyor…';
   if (!active) {
     for (const field of ['recipient', 'reply-subject', 'draft', 'message']) inbox(field).value = '';
     for (const field of ['thread', 'questions', 'sources']) inbox(field).replaceChildren();
@@ -105,6 +96,16 @@ function renderInbox() {
   const order = mail.order_check;
   inbox('order-check').dataset.status = order?.status || '';
   inbox('order-check').hidden = !mail.id.startsWith('gmail-');
+  const windowStatus = inbox('return-window');
+  const withinWindow = order?.within_return_window;
+  windowStatus.hidden = order?.status !== 'verified';
+  windowStatus.dataset.window = withinWindow === true ? 'yes' : withinWindow === false ? 'no' : 'unknown';
+  windowStatus.textContent = withinWindow === true
+    ? '✓ İade ve değişime uygun · 14 günlük süre içinde'
+    : withinWindow === false
+      ? '✕ İade ve değişime uygun değil · 14 günlük süre aşıldı'
+      : '14 günlük süre hesaplanamadı';
+  windowStatus.title = 'Bu gösterge yalnızca 14 günlük süreyi değerlendirir. Ayıplı teslimat ayrıca incelenir.';
   inbox('order-title').textContent = order?.status === 'verified' ? 'Sipariş eşleşti'
     : order?.status === 'unmatched' ? 'Sipariş eşleşmedi' : 'Sipariş kontrolü gerekli';
   const record = order?.record;
@@ -151,7 +152,7 @@ function renderInbox() {
   inbox('status').className = active.error ? 'error' : '';
   inbox('retry').hidden = active.busy || !active.retry;
   inbox('chat').hidden = !active.sessionId || needsOrderCheck(mail);
-  inbox('revise').hidden = !active.hasDraft || active.employeeDraft;
+  inbox('revise').hidden = !active.hasDraft;
   inbox('answers').hidden = !active.questions || needsOrderCheck(mail);
   inbox('questions').replaceChildren(...Object.entries(active.questions || {}).map(([key, question]) => {
     const group = document.createElement('div');
@@ -201,28 +202,6 @@ function renderInbox() {
     : mail.thread ? 'Yanıt, özgün e-posta zincirine bağlanacak.' : '');
 }
 
-function updateResponseOptions(entry) {
-  inbox('draft-options').hidden = !entry?.sessionId || Boolean(entry.sent)
-    || needsOrderCheck(selectedRefundMail);
-  const type = entry?.responseType || 'suggested';
-  const response = employeeResponses[type];
-  const select = inbox('response-type');
-  const detail = inbox('response-detail');
-  const create = inbox('create-draft');
-  select.value = type;
-  select.disabled = Boolean(entry?.busy);
-  const detailLabel = response?.label || '';
-  inbox('response-detail-field').hidden = !detailLabel;
-  inbox('response-detail-label').textContent = detailLabel;
-  detail.value = entry?.responseDetails[type] || '';
-  detail.setCustomValidity('');
-  detail.disabled = Boolean(entry?.busy);
-  detail.required = Boolean(detailLabel);
-  create.hidden = !response && Boolean(entry?.hasDraft) && !entry?.readyForDraft;
-  create.disabled = !entry || entry.busy || (!response && !entry.readyForDraft);
-  create.textContent = entry?.hasDraft ? 'Yeni taslak oluştur' : 'Yanıt oluştur';
-}
-
 function sizeInboxDraft() {
   const draft = inbox('draft');
   draft.style.height = 'auto';
@@ -242,7 +221,7 @@ function openRefundMail(mail) {
   }
   const entry = {
     version, orderBlocked, orderSnapshot, busy: false, turns: previous?.turns.slice() || [],
-    sources: [], answers: {}, message: '', draft: '', responseType: 'suggested', responseDetails: {},
+    sources: [], answers: {}, message: '', draft: '',
     subject: /^re:/i.test(mail.subject) ? mail.subject : 'Re: ' + mail.subject,
     recipient: mail.thread ? mail.sender_address : mail.recipient
   };
@@ -272,6 +251,7 @@ async function runInboxRequest(mail, payload, employeeTurn) {
   entry.busy = true;
   entry.error = '';
   entry.retry = null;
+  let generateNext = false;
   renderInbox();
   try {
     const data = await post('/api/refund', payload);
@@ -285,15 +265,15 @@ async function runInboxRequest(mail, payload, employeeTurn) {
       entry.correctionOnly = Boolean(data.correction_only);
       entry.questions = data.questions;
       entry.readyForDraft = Boolean(data.ready_for_draft);
+      generateNext = entry.readyForDraft && payload.action !== 'generate';
       entry.answers = {};
       entry.turns.push({text: data.questions
         ? Object.values(data.questions).join('\n')
-        : data.ready_for_draft ? 'Sağ panelden yanıt taslağını oluşturabilirsin.'
+        : data.ready_for_draft ? 'Netle yanıt taslağını hazırlıyor.'
         : 'Yanıt taslağı sağ panelde hazır.'});
     }
-    if (typeof data.draft === 'string' && !(entry.employeeDraft && payload.action === 'resume')) {
+    if (typeof data.draft === 'string') {
       entry.hasDraft = true;
-      entry.employeeDraft = false;
       entry.draft = data.draft;
       entry.sources = data.sources;
     } else if (data.message && data.sources.length) {
@@ -301,12 +281,15 @@ async function runInboxRequest(mail, payload, employeeTurn) {
     }
   } catch (error) {
     entry.error = error.message;
-    if (payload.action === 'start' || payload.action === 'resume') {
+    if (['start', 'resume', 'generate'].includes(payload.action)) {
       entry.retry = {payload, employeeTurn};
     }
   } finally {
     entry.busy = false;
-    if (refundCases.get(mail.id) === entry) renderInbox();
+    if (refundCases.get(mail.id) === entry && !generateNext) renderInbox();
+  }
+  if (generateNext && refundCases.get(mail.id) === entry) {
+    await runInboxRequest(mail, {action: 'generate', session_id: entry.sessionId});
   }
 }
 
@@ -389,43 +372,6 @@ for (const [filter, closed] of [['open', false], ['closed', true]]) {
 }
 
 inbox('refresh').addEventListener('click', () => refreshInbox());
-
-inbox('response-type').addEventListener('change', event => {
-  const entry = refundCases.get(selectedRefundMail.id);
-  entry.responseType = event.target.value;
-  updateResponseOptions(entry);
-});
-
-inbox('response-detail').addEventListener('input', event => {
-  const entry = refundCases.get(selectedRefundMail.id);
-  event.target.setCustomValidity('');
-  entry.responseDetails[entry.responseType] = event.target.value;
-});
-
-inbox('create-draft').addEventListener('click', () => {
-  const mail = selectedRefundMail;
-  const entry = mail && refundCases.get(mail.id);
-  if (!entry?.sessionId || entry.busy || entry.sent) return;
-  const response = employeeResponses[entry.responseType];
-  if (!response) {
-    if (entry.readyForDraft) runInboxRequest(mail, {action: 'generate', session_id: entry.sessionId});
-    return;
-  }
-  const input = inbox('response-detail');
-  const detail = (entry.responseDetails[entry.responseType] || '').trim();
-  if (response.label && !detail) {
-    input.setCustomValidity(response.label + ' alanını doldur.');
-    input.reportValidity();
-    return;
-  }
-  entry.draft = 'Merhaba,\n\n' + response.message(detail) + '\n\nİyi çalışmalar dileriz.';
-  entry.hasDraft = true;
-  entry.employeeDraft = true;
-  entry.sources = [];
-  entry.sendStatus = '';
-  renderInbox();
-  inbox('draft').focus();
-});
 
 inbox('retry').addEventListener('click', () => {
   const retry = refundCases.get(selectedRefundMail.id).retry;
