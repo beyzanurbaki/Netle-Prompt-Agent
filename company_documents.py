@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS company_documents (
     uploaded_by INTEGER NOT NULL,
     reviewed_by INTEGER,
     uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    reviewed_at TEXT
+    reviewed_at TEXT,
+    deleted_at TEXT
 );
 CREATE INDEX IF NOT EXISTS company_documents_title_status ON company_documents(title, status);
 CREATE TABLE IF NOT EXISTS company_document_chunks (
@@ -44,6 +45,8 @@ def setup(db):
     columns = {row[1] for row in db.execute("PRAGMA table_info(company_documents)")}
     if "file_bytes" not in columns:
         db.execute("ALTER TABLE company_documents ADD COLUMN file_bytes BLOB")
+    if "deleted_at" not in columns:
+        db.execute("ALTER TABLE company_documents ADD COLUMN deleted_at TEXT")
 
 
 @dataclass(frozen=True)
@@ -138,7 +141,7 @@ def upload(db, title, filename, encoded, employee_id):
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     existing = db.execute(
         "SELECT id FROM company_documents WHERE title = ? COLLATE NOCASE "
-        "AND status IN ('active','pending') AND content_hash = ? LIMIT 1", (title, content_hash),
+        "AND status IN ('active','pending') AND deleted_at IS NULL AND content_hash = ? LIMIT 1", (title, content_hash),
     ).fetchone()
     if existing:
         raise ValueError("Bu başlıkta aynı içerik zaten etkin veya onay bekliyor.")
@@ -159,14 +162,14 @@ def upload(db, title, filename, encoded, employee_id):
 
 def approve(db, document_id, reviewer_id):
     row = db.execute(
-        "SELECT title,status,content_hash FROM company_documents WHERE id = ?", (document_id,),
+        "SELECT title,status,content_hash FROM company_documents WHERE id = ? AND deleted_at IS NULL", (document_id,),
     ).fetchone()
     if row is None or row[1] != "pending":
         raise ValueError("Onay bekleyen belge bulunamadı.")
     title, _, content_hash = row
     same = db.execute(
         "SELECT 1 FROM company_documents WHERE title = ? COLLATE NOCASE "
-        "AND status = 'active' AND content_hash = ? LIMIT 1", (title, content_hash),
+        "AND status = 'active' AND deleted_at IS NULL AND content_hash = ? LIMIT 1", (title, content_hash),
     ).fetchone()
     if same:
         raise ValueError("Aynı içerik zaten etkin. Bu yüklemeyi reddet veya sil.")
@@ -175,7 +178,7 @@ def approve(db, document_id, reviewer_id):
         "WHERE title = ? COLLATE NOCASE AND status IN ('active','archived')", (title,),
     ).fetchone()[0]
     with db:
-        db.execute("UPDATE company_documents SET status='archived' WHERE title = ? COLLATE NOCASE AND status='active'", (title,))
+        db.execute("UPDATE company_documents SET status='archived' WHERE title = ? COLLATE NOCASE AND status='active' AND deleted_at IS NULL", (title,))
         db.execute(
             "UPDATE company_documents SET status='active', version=?, reviewed_by=?, "
             "reviewed_at=CURRENT_TIMESTAMP WHERE id=?", (current + 1, reviewer_id, document_id),
@@ -187,11 +190,24 @@ def reject(db, document_id, reviewer_id):
     with db:
         updated = db.execute(
             "UPDATE company_documents SET status='rejected', reviewed_by=?, "
-            "reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
+            "reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending' AND deleted_at IS NULL",
             (reviewer_id, document_id),
         )
     if not updated.rowcount:
         raise ValueError("Reddedilebilecek bekleyen belge bulunamadı.")
+
+
+def delete_document(db, document_id):
+    if type(document_id) is not int or document_id < 1:
+        raise ValueError("Geçerli bir şirket belgesi seç.")
+    with db:
+        deleted = db.execute(
+            "UPDATE company_documents SET deleted_at=CURRENT_TIMESTAMP "
+            "WHERE id=? AND deleted_at IS NULL",
+            (document_id,),
+        )
+        if not deleted.rowcount:
+            raise ValueError("Silinecek şirket belgesi bulunamadı.")
 
 
 def list_documents(db):
@@ -203,10 +219,10 @@ def list_documents(db):
         for row in db.execute(
             "SELECT d.id,d.title,d.filename,d.version,d.status,d.uploaded_at,d.reviewed_at,d.text, "
             "EXISTS(SELECT 1 FROM company_documents a WHERE a.title=d.title COLLATE NOCASE "
-            "AND a.status='active'), (SELECT a.text FROM company_documents a "
-            "WHERE a.title=d.title COLLATE NOCASE AND a.status='active' LIMIT 1) "
+            "AND a.status='active' AND a.deleted_at IS NULL), (SELECT a.text FROM company_documents a "
+            "WHERE a.title=d.title COLLATE NOCASE AND a.status='active' AND a.deleted_at IS NULL LIMIT 1) "
             "FROM company_documents d "
-            "WHERE d.status IN ('pending','active','archived') ORDER BY d.title COLLATE NOCASE, d.id DESC"
+            "WHERE d.status IN ('pending','active','archived') AND d.deleted_at IS NULL ORDER BY d.title COLLATE NOCASE, d.id DESC"
         )
     ]
 
@@ -216,7 +232,7 @@ def active_chunks(db):
     rows = db.execute(
         "SELECT d.id,d.version,d.uploaded_at,d.filename,d.title,c.ordinal,c.heading,c.body "
         "FROM company_documents d JOIN company_document_chunks c ON c.document_id=d.id "
-        "WHERE d.status='active' ORDER BY d.id,c.ordinal"
+        "WHERE d.status='active' AND d.deleted_at IS NULL ORDER BY d.id,c.ordinal"
     )
     for doc_id, version, date, filename, title, ordinal, heading, body in rows:
         chunks.append(Chunk(f"DOC-{doc_id}#{ordinal}", f"{version}", date, filename,

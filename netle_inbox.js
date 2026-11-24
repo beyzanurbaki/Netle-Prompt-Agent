@@ -103,6 +103,7 @@ function renderInbox() {
   inbox('subject').textContent = mail.subject;
   inbox('sender').textContent = mail.sender;
   const order = mail.order_check;
+  inbox('order-check').dataset.status = order?.status || '';
   inbox('order-check').hidden = !mail.id.startsWith('gmail-');
   inbox('order-title').textContent = order?.status === 'verified' ? 'Sipariş eşleşti'
     : order?.status === 'unmatched' ? 'Sipariş eşleşmedi' : 'Sipariş kontrolü gerekli';

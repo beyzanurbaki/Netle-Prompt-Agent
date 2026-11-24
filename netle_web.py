@@ -23,7 +23,7 @@ from order_records import (
     order_count, parse_order_date, setup_orders, stored_order_date,
 )
 from company_documents import (approve as approve_document,
-                               reject as reject_document,
+                               reject as reject_document, delete_document,
                                list_documents, retrieve as retrieve_company_documents,
                                setup as setup_documents, upload as upload_document)
 from refund_demo import chat
@@ -457,14 +457,18 @@ class Handler(BaseHTTPRequestHandler):
                     with closing(sqlite3.connect(self.server.db_path)) as db:
                         reject_document(db, payload.get("id"), account[0])
                     result = {"rejected": True}
+                elif payload.get("action") == "delete":
+                    with closing(sqlite3.connect(self.server.db_path)) as db:
+                        delete_document(db, payload.get("id"))
+                    result = {"deleted": True}
                 elif payload.get("action") == "preview":
                     with closing(sqlite3.connect(self.server.db_path)) as db:
                         setup_documents(db)
                         row = db.execute(
                             "SELECT d.title,d.filename,d.version,d.status,d.text,a.text "
                             "FROM company_documents d LEFT JOIN company_documents a "
-                            "ON a.title=d.title COLLATE NOCASE AND a.status='active' "
-                            "WHERE d.id = ?",
+                            "ON a.title=d.title COLLATE NOCASE AND a.status='active' AND a.deleted_at IS NULL "
+                            "WHERE d.id = ? AND d.deleted_at IS NULL",
                             (payload.get("id"),),
                         ).fetchone()
                     if row is None:

@@ -5,12 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Netle · İade asistanı</title>
   <style>
-    :root { color-scheme: light; font: 16px/1.55 system-ui, sans-serif; color: #172d27; background: #f3f5ef; }
+    :root {
+      color-scheme: light;
+      font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+      --ink: #172923;
+      --muted: #52665e;
+      --line: #dce6e0;
+      --brand: #204f3e;
+      --brand-deep: #142f27;
+      --surface: #fff;
+      color: var(--ink);
+      background: #f1f5f2;
+    }
     * { box-sizing: border-box; }
     body { margin: 0; }
     main { max-width: 780px; margin: auto; padding: clamp(24px, 6vw, 64px) 20px; }
-    header { margin-bottom: 26px; }
-    .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    header {
+      margin-bottom: 24px;
+      padding: 18px 24px;
+      border-radius: 16px;
+      color: #fff;
+      background: linear-gradient(105deg, #142f27, #204f3e);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      display: grid; place-items: center; flex: 0 0 38px; height: 38px;
+      border: 1px solid #ffffff40; border-radius: 11px; color: #ecfbf1;
+      background: #ffffff1a; font-size: 21px; font-weight: 750;
+    }
+    .header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .account-menu { position: relative; }
     .account-menu[hidden] { display: none; }
     #employee-name { margin: 0; padding: 7px 12px; max-width: min(40vw, 16rem); overflow-wrap: anywhere; }
@@ -18,8 +41,8 @@
     .account-dropdown[hidden] { display: none; }
     .account-dropdown button { display: block; width: 100%; margin: 0; padding: 9px 10px; text-align: left; background: transparent; color: #172d27; }
     .account-dropdown button:hover { background: #f3f5ef; }
-    h1 { font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.05; letter-spacing: -.045em; margin: 0; }
-    header p { margin: 10px 0 0; color: #425d53; }
+    h1 { font-size: clamp(1.35rem, 3vw, 1.8rem); line-height: 1.15; letter-spacing: -.035em; margin: 0; }
+    header p { margin: 7px 0 0 50px; color: #d1e5dc; font-size: .9rem; }
     section, form { background: #fff; border: 1px solid #d8e1d6; border-radius: 18px; padding: clamp(16px, 4vw, 28px); margin: 0 0 18px; }
     label { display: block; font-weight: 650; margin-bottom: 8px; }
     .delivery-unknown { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-weight: 500; }
@@ -48,13 +71,23 @@
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid #d8e1d6; white-space: nowrap; }
     body.admin-active:not(.password-only) main, body.inbox-active main { max-width: 1580px; padding-top: 24px; }
-    .admin-grid:not([hidden]) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+    .admin-grid:not([hidden]) { display: grid; grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); gap: 14px; align-items: start; }
     .admin-grid > section, .admin-staff > section, .admin-staff > form { min-width: 0; margin: 0; padding: 18px; overflow-wrap: anywhere; }
     .admin-grid > section > form { margin: 12px 0 0; padding: 0; border: 0; }
-    .admin-staff { display: grid; min-width: 0; gap: 14px; }
-    @media (max-width: 860px) { .admin-grid:not([hidden]) { grid-template-columns: minmax(0, 1fr); } }
+    .admin-staff:not([hidden]) { display: grid; min-width: 0; gap: 16px; }
+    .admin-nav {
+      position: sticky; top: 16px; display: grid; gap: 5px; padding: 8px;
+      border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+    }
+    .admin-nav button { margin: 0; text-align: start; color: var(--ink); background: transparent; }
+    .admin-nav button[aria-pressed="true"] { color: #fff; background: var(--brand); }
+    @media (max-width: 700px) {
+      .admin-grid:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
+      .admin-nav { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .admin-nav button { padding: 8px 5px; text-align: center; font-size: .86rem; overflow-wrap: anywhere; }
+    }
     .inbox-grid { display: grid; grid-template-columns: minmax(215px, 1fr) minmax(0, 2fr) minmax(280px, 1.35fr); gap: 14px; align-items: stretch; }
-    .inbox-grid > section { margin: 0; min-width: 0; padding: 18px; overflow-wrap: anywhere; }
+    .inbox-grid > section { margin: 0; min-width: 0; padding: 20px; overflow-wrap: anywhere; }
     .inbox-grid h2 { font-size: 1.08rem; margin-bottom: 14px; }
     .inbox-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
     .inbox-list-heading h2 { margin: 0; }
@@ -79,17 +112,69 @@
     #inbox-thread { max-height: 300px; overflow: auto; }
     #inbox-status { color: #425d53; }
     #inbox-status.error { color: #980f21; }
-    #inbox-draft { min-height: 218px; field-sizing: content; }
+    #inbox-draft { min-height: 200px; max-height: 52vh; }
     #inbox-send-status { margin-bottom: 0; }
+    main { padding-inline: clamp(12px, 2.6vw, 36px); }
+    section, form { border-color: var(--line); border-radius: 14px; }
+    .inbox-grid, .admin-grid:not([hidden]), .admin-staff { gap: 16px; }
+    .inbox-grid > section, .admin-grid > section, .admin-staff > section, .admin-staff > form,
+    #account-form, #password-form { box-shadow: 0 2px 5px #142f2709, 0 12px 26px #142f2707; }
+    .inbox-grid > section > h2, .inbox-list-heading { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+    #account-form, #password-form { max-width: 480px; margin-inline: auto; }
+    #account-submit { width: 100%; }
+    #login-status { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #f1f5f2; color: var(--ink); }
+    #login-status:empty, #account-status:empty, #password-status:empty, #inbox-status:empty, #inbox-load-status:empty { display: none; }
+    #employee-name { background: #ffffff18; border: 1px solid #ffffff55; }
+    #employee-name::after { content: " \2304"; margin-inline-start: 5px; }
+    button:not(:disabled):hover { filter: brightness(.94); }
+    button { transition: background-color .15s, box-shadow .15s; }
+    textarea, input, select { border-color: #b8cbc0; background: #fcfdfc; }
+    input[type="file"] { max-width: 100%; min-width: 0; }
+    input[type="file"]::file-selector-button {
+      font: inherit; font-size: .86rem; font-weight: 650; margin-inline-end: 8px;
+      padding: 5px 8px; color: var(--brand); background: #e7f1eb; border: 0; border-radius: 5px;
+    }
+    .inbox-filters { background: #eef3ef; border-radius: 10px; padding: 4px; }
+    .inbox-filters button { background: transparent; color: var(--muted); }
+    .inbox-filters button[aria-pressed="true"] { background: var(--surface); color: var(--brand-deep); box-shadow: 0 1px 4px #142f2720; }
+    #inbox-list { max-height: min(65vh, 720px); overflow: auto; scrollbar-gutter: stable; }
+    .inbox-mail { background: var(--surface); padding: 10px 12px; }
+    .inbox-mail strong { font-size: .93rem; }
+    .inbox-mail small { margin-top: 3px; }
+    .inbox-mail[aria-pressed="true"] { border-color: #77a58e; box-shadow: inset 3px 0 var(--brand); }
+    #inbox-subject { display: block; font-size: 1.13rem; line-height: 1.35; margin-bottom: 4px; }
+    #inbox-sender { margin-bottom: 14px; }
+    #inbox-empty, #inbox-draft-empty { padding: 16px; border: 1px dashed #b8cbc0; border-radius: 10px; background: #f8fbf9; }
+    #inbox-order-check { background: #f6f8f6; border: 1px solid var(--line); }
+    #inbox-order-check[data-status="verified"] { border-inline-start: 3px solid #39845e; background: #eef7f0; }
+    #inbox-order-check[data-status="unmatched"], #inbox-order-check[data-status="review"] {
+      border-inline-start: 3px solid #a76717; background: #fdf5e8;
+    }
+    #inbox-draft-options { margin-bottom: 12px; }
+    #inbox-draft-panel:not([hidden]) { padding-top: 12px; border-top: 1px solid var(--line); }
+    #inbox-send { min-width: 112px; }
+    #inbox-revise, #password-cancel { color: var(--brand); background: #e7f1eb; }
+    #admin-orders code { display: block; padding: 9px; background: #eef4ef; border-radius: 8px; overflow-wrap: anywhere; }
+    #document-list > section { background: #f8fbf9; margin: 12px 0 0; padding: 14px; }
     @media (max-width: 960px) { .inbox-grid { grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr); } .inbox-grid > :last-child { grid-column: 2; } }
-    @media (max-width: 640px) { .inbox-grid { grid-template-columns: minmax(0, 1fr); } .inbox-grid > :last-child { grid-column: auto; } }
+    @media (max-width: 640px) {
+      header { padding: 14px; margin-bottom: 16px; }
+      header p { margin-left: 0; }
+      .inbox-grid { grid-template-columns: minmax(0, 1fr); }
+      .inbox-grid > :last-child { grid-column: auto; }
+      .inbox-grid > section { padding: 16px; }
+      #inbox-list { max-height: 36vh; }
+    }
   </style>
 </head>
 <body>
 <main>
   <header>
     <div class="header-row">
-      <h1 id="workspace-title">Netle</h1>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">N</span>
+        <h1 id="workspace-title">Netle</h1>
+      </div>
       <div id="account-menu" class="account-menu" hidden>
         <button id="employee-name" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="account-dropdown"></button>
         <div id="account-dropdown" class="account-dropdown" hidden>
@@ -102,6 +187,7 @@
   </header>
   <form id="account-form" hidden>
     <h2 id="account-title">Çalışan girişi</h2>
+    <p id="login-status" role="status"></p>
     <div class="field">
       <label for="username">Kullanıcı adı</label>
       <input id="username" autocomplete="username" minlength="3" maxlength="40" required>
@@ -122,6 +208,11 @@
   </form>
   <p id="password-status" role="status"></p>
   <div id="admin-work" class="admin-grid" hidden>
+    <nav class="admin-nav" aria-label="Yönetim bölümleri">
+      <button type="button" aria-controls="admin-orders" aria-pressed="true">Sipariş kayıtları</button>
+      <button type="button" aria-controls="admin-documents" aria-pressed="false">Şirket belgeleri</button>
+      <button type="button" aria-controls="admin-staff" aria-pressed="false">Çalışanlar</button>
+    </nav>
     <section id="admin-orders">
       <h2>Sipariş kayıtları</h2>
       <p>Şirketin sipariş dışa aktarımını CSV olarak yükle. Aynı sipariş numarası yeniden yüklenirse kayıt güncellenir.</p>
@@ -133,7 +224,7 @@
       </form>
       <p id="order-import-status" role="status"></p>
     </section>
-    <section id="admin-documents">
+    <section id="admin-documents" hidden>
       <h2>Şirket belgeleri</h2>
       <p>Yüklenen dosyalar taslak üretiminde kullanılmadan önce yönetici onayından geçer. Aynı başlıktaki yeni sürüm onaylanınca eski sürüm aramadan çıkarılır.</p>
       <form id="document-upload-form">
@@ -144,7 +235,7 @@
       <p id="document-status" role="status" class="document-status"></p>
       <div id="document-list"></div>
     </section>
-    <div class="admin-staff">
+    <div id="admin-staff" class="admin-staff" hidden>
       <form id="employee-create-form">
         <h2>Çalışan ekle</h2>
         <div class="field">
@@ -266,7 +357,7 @@
 </main>
 <script src="/netle_inbox.js"></script>
 <script>
-  const buttons = document.querySelectorAll('button:not(.inbox-grid button)');
+  const buttons = document.querySelectorAll('button:not(.inbox-grid button, .admin-nav button, #account-menu button)');
   let busy = false;
   let currentRole = null;
 
@@ -352,10 +443,21 @@
   const temporaryPassword = document.querySelector('#temporary-password');
   const temporaryPasswordPanel = document.querySelector('#temporary-password-panel');
   const accountStatus = document.querySelector('#account-status');
+  const loginStatus = document.querySelector('#login-status');
   const password = document.querySelector('#password');
   const createEmployeeForm = document.querySelector('#employee-create-form');
   const createEmployeeStatus = document.querySelector('#employee-create-status');
   const adminWork = document.querySelector('#admin-work');
+  const adminSections = adminWork.querySelectorAll('.admin-nav button');
+  for (const button of adminSections) {
+    button.addEventListener('click', () => {
+      for (const item of adminSections) {
+        const selected = item === button;
+        item.setAttribute('aria-pressed', String(selected));
+        document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
+      }
+    });
+  }
   const employeeList = document.querySelector('#employee-list');
   const employeeListStatus = document.querySelector('#employee-list-status');
 
@@ -385,7 +487,8 @@
       temporaryPasswordPanel.hidden = true;
       resetStatus.textContent = '';
     }
-    accountStatus.textContent = message;
+    accountStatus.textContent = username ? message : '';
+    loginStatus.textContent = username ? '' : message;
     if (!username) {
       document.body.classList.remove('password-only');
       document.querySelector('#password-form').hidden = true;
@@ -620,6 +723,25 @@
         });
         card.append(reject);
       }
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = 'Belgeyi sil';
+      remove.style.background = '#6f3333';
+      remove.addEventListener('click', async () => {
+        if (currentRole !== 'admin' || !confirm(entry.filename + ' adlı belge sürümü silinsin mi?')) return;
+        const status = document.querySelector('#document-status');
+        remove.disabled = true;
+        try {
+          await post('/api/admin/documents', {action: 'delete', id: entry.id});
+          card.remove();
+          status.textContent = 'Belge silindi.';
+          await refreshDocuments();
+        } catch (error) {
+          status.textContent = error.message;
+          remove.disabled = false;
+        }
+      });
+      card.append(remove);
       return card;
     }));
     if (currentRole !== 'admin') return;
@@ -728,24 +850,26 @@
       setAccount(data.username, '', data.role);
       await refreshWorkspace();
     } catch (error) {
-      accountStatus.textContent = error.message;
+      loginStatus.textContent = error.message;
     } finally {
       password.value = '';
       setBusy(false);
     }
   });
 
-  document.querySelector('#logout').addEventListener('click', async () => {
-    if (busy) return;
-    setBusy(true);
+  const logoutButton = document.querySelector('#logout');
+  logoutButton.addEventListener('click', async () => {
+    if (logoutButton.disabled) return;
+    logoutButton.disabled = true;
     try {
       await post('/api/account', {action: 'logout'});
       accountForm.reset();
       setAccount(null, 'Oturum kapatıldı.');
+      document.querySelector('#username').focus();
     } catch (error) {
       accountStatus.textContent = error.message;
     } finally {
-      setBusy(false);
+      logoutButton.disabled = false;
     }
   });
 
