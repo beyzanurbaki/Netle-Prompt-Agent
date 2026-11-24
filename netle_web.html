@@ -5,190 +5,524 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Netle · Müşteri hizmetleri</title>
   <style>
+    /* ---------- Tasarım belirteçleri ---------- */
     :root {
       color-scheme: light;
-      font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
-      --ink: #172923;
-      --muted: #52665e;
-      --line: #dce6e0;
-      --brand: #204f3e;
-      --brand-deep: #142f27;
+      --font: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+      --mono: "Cascadia Code", ui-monospace, Consolas, monospace;
+      --bg: #f5f6f8;
       --surface: #fff;
+      --surface-2: #f9fafb;
+      --surface-3: #f1f3f6;
+      --line: #e4e7ec;
+      --line-strong: #d0d5dd;
+      --ink: #101828;
+      --ink-2: #344054;
+      --muted: #475467;
+      --subtle: #667085;
+      --brand: #1d5c45;
+      --brand-hover: #164a37;
+      --brand-deep: #0f3328;
+      --brand-soft: #edf6f1;
+      --brand-line: #b9d9c8;
+      --danger: #b42318; --danger-hover: #912018; --danger-soft: #fef3f2; --danger-line: #fecdca;
+      --warn: #b54708; --warn-soft: #fffaeb; --warn-line: #fedf89;
+      --success: #067647; --success-soft: #ecfdf3; --success-line: #abefc6;
+      --info: #175cd3; --info-soft: #eff8ff; --info-line: #b2ddff;
+      --radius-sm: 8px; --radius: 10px; --radius-lg: 14px;
+      --shadow-xs: 0 1px 2px #1018280d;
+      --shadow-sm: 0 1px 3px #1018281a, 0 1px 2px #1018280f;
+      --shadow-lg: 0 12px 24px -6px #10182817, 0 4px 8px -2px #1018280a;
+      --ring: 0 0 0 4px #1d5c4622;
+      --topbar-h: 60px;
+      font: 14.5px/1.55 var(--font);
       color: var(--ink);
-      background: #f1f5f2;
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; }
-    main { max-width: 780px; margin: auto; padding: clamp(24px, 6vw, 64px) 20px; }
-    header {
-      margin-bottom: 24px;
-      padding: 18px 24px;
-      border-radius: 16px;
-      color: #fff;
-      background: linear-gradient(105deg, #142f27, #204f3e);
+    body { margin: 0; min-height: 100vh; }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    h1, h2, h3 { color: var(--ink); letter-spacing: -.012em; }
+    h2 { margin: 0 0 4px; font-size: 1.06rem; font-weight: 650; }
+    h3 { margin: 0; font-size: .95rem; font-weight: 600; }
+    code { font-family: var(--mono); }
+
+    /* ---------- Üst çubuk ---------- */
+    .topbar {
+      position: sticky; top: 0; z-index: 20; height: var(--topbar-h);
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 0 clamp(16px, 2.4vw, 32px);
+      border-bottom: 1px solid var(--line); background: #ffffffeb;
+      backdrop-filter: saturate(180%) blur(8px);
     }
     .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
     .brand-mark {
-      display: grid; place-items: center; flex: 0 0 38px; height: 38px;
-      border: 1px solid #ffffff40; border-radius: 11px; color: #ecfbf1;
-      background: #ffffff1a; font-size: 21px; font-weight: 750;
+      display: grid; place-items: center; flex: none; width: 32px; height: 32px;
+      border-radius: 9px; color: #fff; font-size: 16px; font-weight: 700;
+      background: linear-gradient(140deg, #2f8463, var(--brand-deep));
+      box-shadow: inset 0 0 0 1px #ffffff26, var(--shadow-xs);
     }
-    .header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .account-menu { position: relative; }
-    .account-menu[hidden] { display: none; }
-    #employee-name { margin: 0; padding: 7px 12px; max-width: min(40vw, 16rem); overflow-wrap: anywhere; }
-    .account-dropdown { position: absolute; z-index: 2; top: calc(100% + 6px); right: 0; min-width: 190px; padding: 8px; border: 1px solid #d8e1d6; border-radius: 12px; background: #fff; box-shadow: 0 8px 24px #172d2722; }
-    .account-dropdown[hidden] { display: none; }
-    .account-dropdown button { display: block; width: 100%; margin: 0; padding: 9px 10px; text-align: left; background: transparent; color: #172d27; }
-    .account-dropdown button:hover { background: #f3f5ef; }
-    h1 { font-size: clamp(1.35rem, 3vw, 1.8rem); line-height: 1.15; letter-spacing: -.035em; margin: 0; }
-    header p { margin: 7px 0 0 50px; color: #d1e5dc; font-size: .9rem; }
-    section, form { background: #fff; border: 1px solid #d8e1d6; border-radius: 18px; padding: clamp(16px, 4vw, 28px); margin: 0 0 18px; }
-    label { display: block; font-weight: 650; margin-bottom: 8px; }
-    .delivery-unknown { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-weight: 500; }
-    .delivery-unknown input { width: auto; margin: 0; }
-    textarea, input, select { width: 100%; padding: 10px 12px; border: 1px solid #91a59a; border-radius: 9px; color: inherit; background: #fbfcfa; font: inherit; }
-    textarea { resize: vertical; }
-    button { border: 0; border-radius: 9px; padding: 10px 16px; background: #204f3e; color: #fff; font: inherit; font-weight: 650; cursor: pointer; margin-top: 12px; }
-    button:disabled { opacity: .6; cursor: wait; }
-    .document-approve:disabled:not([aria-busy="true"]) { cursor: default; }
-    :focus-visible { outline: 3px solid #4e8c69; outline-offset: 3px; }
-    .field { margin-bottom: 12px; }
-    h2 { margin: 0 0 12px; font-size: 1.25rem; }
-    details { margin-top: 16px; }
-    summary { cursor: pointer; font-weight: 650; }
-    .document-version { border-top: 1px solid #d8e1d6; padding-top: 12px; margin-top: 12px; }
-    .document-version p { margin: 5px 0; }
-    .document-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-    #employee-list > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #d8e1d6; }
-    #employee-list button { margin: 0; padding: 6px 12px; }
-    .document-status { color: #425d53; }
-    #admin-documents pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-    body.password-only header, body.password-only #employee-work,
-    body.password-only #admin-work,
+    .brand-text { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    h1 { margin: 0; font-size: 1.04rem; font-weight: 650; white-space: nowrap; }
+    #employee-description {
+      margin: 0; padding-left: 12px; border-left: 1px solid var(--line);
+      color: var(--subtle); font-size: .86rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .account-menu { position: relative; flex: none; }
+    #employee-name {
+      --btn-bg: var(--surface); --btn-hover: var(--surface-2); --btn-fg: var(--ink-2); --btn-line: var(--line);
+      gap: 8px; margin: 0; padding: 4px 12px 4px 4px; max-width: min(46vw, 18rem);
+      border-radius: 999px; overflow-wrap: anywhere;
+    }
+    #employee-name::before {
+      content: ""; flex: none; width: 26px; height: 26px; border-radius: 50%;
+      background: var(--brand-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231d5c45' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6'/%3E%3C/svg%3E") center / 15px no-repeat;
+    }
+    #employee-name::after {
+      content: ""; flex: none; width: 6px; height: 6px; margin: -3px 0 0 2px;
+      border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+      transform: rotate(45deg); opacity: .55;
+    }
+    .account-dropdown {
+      position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; min-width: 210px; padding: 6px;
+      border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-lg);
+    }
+    .account-dropdown button {
+      --btn-bg: transparent; --btn-hover: var(--surface-3); --btn-fg: var(--ink-2);
+      justify-content: flex-start; width: 100%; margin: 0; padding: 8px 10px;
+      font-weight: 500; box-shadow: none;
+    }
+    .account-dropdown #logout { --btn-fg: var(--danger); --btn-hover: var(--danger-soft); }
+
+    /* ---------- Sayfa iskeleti ---------- */
+    main { width: 100%; max-width: 1640px; margin: 0 auto; padding: 24px clamp(16px, 2.4vw, 32px) 48px; }
+    .admin-grid, .employee-layout {
+      display: grid; grid-template-columns: 224px minmax(0, 1fr); gap: 24px; align-items: start;
+    }
+
+    /* Giriş ve parola ekranları */
+    body:has(#account-form:not([hidden])) .topbar { display: none; }
+    body:has(#account-form:not([hidden])),
+    body.password-only {
+      background: radial-gradient(1100px 520px at 50% -8%, #dcefe4 0%, transparent 62%), var(--bg);
+    }
+    body:has(#account-form:not([hidden])) main,
+    body.password-only main {
+      display: grid; place-content: center; gap: 12px; min-height: 100vh; padding: 32px 16px;
+    }
+    body.password-only .topbar, body.password-only #employee-work, body.password-only #admin-work,
     body.password-only #account-form, body.password-only #account-status { display: none; }
-    body.password-only main { max-width: 520px; padding-top: clamp(48px, 12vh, 120px); }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
-    th, td { padding: 6px 10px 6px 0; border-bottom: 1px solid #d8e1d6; white-space: nowrap; }
-    body.admin-active:not(.password-only) main, body.inbox-active main { max-width: 1580px; padding-top: 24px; }
-    .admin-grid:not([hidden]), .employee-layout:not([hidden]) { display: grid; grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); gap: 14px; align-items: start; }
-    .admin-grid > section, .admin-staff > section, .admin-staff > form { min-width: 0; margin: 0; padding: 18px; overflow-wrap: anywhere; }
-    .admin-grid > section > form { margin: 12px 0 0; padding: 0; border: 0; }
-    .admin-staff:not([hidden]) { display: grid; min-width: 0; gap: 16px; }
-    .admin-nav {
-      position: sticky; top: 16px; display: grid; gap: 5px; padding: 8px;
-      border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+    #account-form, #password-form { width: min(420px, calc(100vw - 32px)); padding: 32px; box-shadow: var(--shadow-lg); }
+    .auth-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; font-size: 1.1rem; font-weight: 700; }
+    .auth-brand .brand-mark { width: 36px; height: 36px; font-size: 18px; }
+    #account-form h2, #password-form h2 { font-size: 1.35rem; margin-bottom: 4px; }
+    .auth-lead { margin: 0 0 24px; color: var(--muted); }
+    .auth-foot { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--subtle); font-size: .84rem; text-align: center; }
+    #account-submit { width: 100%; margin-top: 8px; padding-block: 10px; }
+    #password-form .form-actions { display: flex; gap: 8px; margin-top: 8px; }
+    #password-form .form-actions button { flex: 1; margin: 0; }
+
+    /* ---------- Kartlar ---------- */
+    #account-form, #password-form,
+    .admin-grid > section, .admin-staff > section, .admin-staff > form,
+    .inbox-grid > section, #prompt-work {
+      min-width: 0; margin: 0; padding: 24px; overflow-wrap: anywhere;
+      border: 1px solid var(--line); border-radius: var(--radius-lg);
+      background: var(--surface); box-shadow: var(--shadow-xs);
     }
-    .admin-nav button { margin: 0; text-align: start; color: var(--ink); background: transparent; }
-    .admin-nav button[aria-pressed="true"] { color: #fff; background: var(--brand); }
-    @media (max-width: 700px) {
-      .admin-grid:not([hidden]), .employee-layout:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
-      .admin-nav { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .employee-layout .admin-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .employee-layout .admin-nav #work-prompt { grid-column: 1 / -1; }
-      .admin-nav button { padding: 8px 5px; text-align: center; font-size: .86rem; overflow-wrap: anywhere; }
+    form { margin: 0; }
+
+    /* ---------- Form öğeleri ---------- */
+    label { display: block; margin-bottom: 6px; color: var(--ink-2); font-size: .88rem; font-weight: 600; }
+    .field { margin-bottom: 16px; }
+    textarea, input, select {
+      width: 100%; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+      color: var(--ink); background: var(--surface); font: inherit; box-shadow: var(--shadow-xs);
+      transition: border-color .15s, box-shadow .15s;
     }
-    .inbox-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 16px; min-width: 0; align-items: start; }
-    .inbox-grid[hidden] { display: none; }
-    #prompt-work { min-width: 0; }
-    #prompt-work form { margin: 0; padding: 0; border: 0; }
-    #prompt-result { margin-top: 20px; }
-    #prompt-result ul, #prompt-sources { overflow-wrap: anywhere; }
-    #inbox-list-panel { grid-column: 1 / -1; }
-    .inbox-grid > section { margin: 0; min-width: 0; padding: 20px; overflow-wrap: anywhere; }
-    .inbox-grid h2 { font-size: 1.08rem; margin-bottom: 14px; }
-    .inbox-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
-    .inbox-list-heading h2 { margin: 0; }
-    #inbox-refresh { display: grid; place-items: center; flex: none; width: 32px; height: 32px; margin: 0; padding: 0; font-size: 1.2rem; line-height: 1; }
-    .inbox-grid form { padding: 0; margin: 12px 0 0; border: 0; }
-    .inbox-grid small, .inbox-meta { color: #425d53; }
-    .inbox-meta { margin: 0 0 12px; }
-    .inbox-mail { width: 100%; text-align: left; background: #f5f7f3; color: #172d27; padding: 12px; margin: 0 0 8px; border: 1px solid #d8e1d6; }
-    .inbox-mail[aria-pressed="true"] { background: #e1eee4; border-color: #4e8c69; }
-    .inbox-mail strong, .inbox-mail small { display: block; }
-    .inbox-mail .inbox-mail-sent { color: #17633a; font-weight: 650; }
-    .inbox-message, .inbox-turn { margin: 12px 0; padding: 12px; background: #f3f5ef; border-radius: 9px; white-space: pre-wrap; }
-    .inbox-message.customer { background: #eef5ff; border-inline-start: 3px solid #4b78aa; }
-    .inbox-message.sent-reply { background: #eaf6ed; border-inline-start: 3px solid #377650; }
-    .inbox-message strong { display: block; margin-bottom: 4px; }
-    #inbox-order-check { white-space: normal; }
-    #inbox-order-summary { white-space: pre-line; }
-    #inbox-return-window:not([hidden]) { display: inline-flex; gap: 6px; margin: 10px 0 0; padding: 5px 9px; border-radius: 8px; background: #e8eeeb; font-weight: 650; }
-    #inbox-return-window[data-window="yes"] { color: #1a5e40; background: #dcefe2; }
-    #inbox-return-window[data-window="no"] { color: #8c2532; background: #fae5e7; }
-    .inbox-turn.employee { background: #e1eee4; margin-left: 22px; }
-    #inbox-thread { max-height: 300px; overflow: auto; }
-    #inbox-status { color: #425d53; }
-    #inbox-status.error { color: #980f21; }
-    #inbox-draft { min-height: 200px; max-height: 52vh; }
-    #inbox-send-status { margin-bottom: 0; }
-    main { padding-inline: clamp(12px, 2.6vw, 36px); }
-    section, form { border-color: var(--line); border-radius: 14px; }
-    .admin-grid:not([hidden]), .employee-layout:not([hidden]), .admin-staff { gap: 16px; }
-    .inbox-grid > section, .admin-grid > section, .admin-staff > section, .admin-staff > form,
-    #account-form, #password-form { box-shadow: 0 2px 5px #142f2709, 0 12px 26px #142f2707; }
-    .inbox-grid > section > h2, .inbox-list-heading { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-    #account-form, #password-form { max-width: 480px; margin-inline: auto; }
-    #account-submit { width: 100%; }
-    #login-status { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #f1f5f2; color: var(--ink); }
-    #login-status:empty, #account-status:empty, #password-status:empty, #inbox-status:empty, #inbox-load-status:empty { display: none; }
-    #employee-name { background: #ffffff18; border: 1px solid #ffffff55; }
-    #employee-name::after { content: " \2304"; margin-inline-start: 5px; }
-    button:not(:disabled):hover { filter: brightness(.94); }
-    button { transition: background-color .15s, box-shadow .15s; }
-    textarea, input, select { border-color: #b8cbc0; background: #fcfdfc; }
-    input[type="file"] { max-width: 100%; min-width: 0; }
+    textarea { resize: vertical; line-height: 1.55; }
+    textarea:focus, input:focus, select:focus { outline: none; border-color: #5c9a80; box-shadow: var(--ring); }
+    input[readonly], textarea[readonly] { background: var(--surface-2); }
+    input:disabled, select:disabled, textarea:disabled { color: var(--subtle); background: var(--surface-3); cursor: not-allowed; }
+    ::placeholder { color: #98a2b3; }
+    small { display: block; margin-top: 6px; color: var(--subtle); font-size: .82rem; font-weight: 400; }
+    input[type="checkbox"] { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--brand); box-shadow: none; }
+    .delivery-unknown { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--muted); font-weight: 500; cursor: pointer; }
+    input[type="file"] { min-width: 0; max-width: 100%; padding: 6px; border-style: dashed; background: var(--surface-2); cursor: pointer; }
     input[type="file"]::file-selector-button {
-      font: inherit; font-size: .86rem; font-weight: 650; margin-inline-end: 8px;
-      padding: 5px 8px; color: var(--brand); background: #e7f1eb; border: 0; border-radius: 5px;
+      margin-right: 10px; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 6px;
+      color: var(--ink-2); background: var(--surface); font: inherit; font-size: .85rem; font-weight: 600;
+      box-shadow: var(--shadow-xs); cursor: pointer;
     }
-    #inbox-list { max-height: min(65vh, 720px); overflow: auto; scrollbar-gutter: stable; }
-    .inbox-mail { background: var(--surface); padding: 10px 12px; }
-    .inbox-mail strong { font-size: .93rem; }
-    .inbox-mail small { margin-top: 3px; }
-    .inbox-mail[aria-pressed="true"] { border-color: #77a58e; box-shadow: inset 3px 0 var(--brand); }
-    #inbox-subject { display: block; font-size: 1.13rem; line-height: 1.35; margin-bottom: 4px; }
-    #inbox-sender { margin-bottom: 14px; }
-    #inbox-draft-empty { padding: 16px; border: 1px dashed #b8cbc0; border-radius: 10px; background: #f8fbf9; }
-    #inbox-order-check { background: #f6f8f6; border: 1px solid var(--line); }
-    #inbox-order-check[data-status="verified"] { border-inline-start: 3px solid #39845e; background: #eef7f0; }
+
+    /* ---------- Düğmeler ---------- */
+    button {
+      --btn-bg: var(--brand); --btn-hover: var(--brand-hover); --btn-fg: #fff; --btn-line: transparent;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      margin-top: 12px; padding: 8px 16px; border: 1px solid var(--btn-line); border-radius: var(--radius-sm);
+      color: var(--btn-fg); background: var(--btn-bg); font: inherit; font-size: .9rem; font-weight: 600; line-height: 1.35;
+      box-shadow: var(--shadow-xs); cursor: pointer;
+      transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
+    }
+    button:not(:disabled):hover { background: var(--btn-hover); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button[aria-busy="true"] { cursor: progress; }
+    .secondary, #inbox-revise, #password-cancel, #prompt-reset, #inbox-retry, #inbox-refresh,
+    .prompt-copy {
+      --btn-bg: var(--surface); --btn-hover: var(--surface-2); --btn-fg: var(--ink-2); --btn-line: var(--line-strong);
+    }
+    .danger { --btn-bg: var(--danger); --btn-hover: var(--danger-hover); }
+    .danger-ghost { --btn-bg: var(--surface); --btn-hover: var(--danger-soft); --btn-fg: var(--danger); --btn-line: var(--danger-line); }
+
+    /* ---------- Durum mesajları ---------- */
+    [role="status"]:empty { display: none; }
+    [role="status"] { color: var(--muted); font-size: .88rem; }
+    #login-status, #account-status, #password-status, #order-import-status, #document-status,
+    #employee-create-status, #employee-reset-status, #employee-list-status, #inbox-status {
+      margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+      color: var(--ink-2); background: var(--surface-2);
+    }
+    #login-status { margin: 0 0 20px; border-color: var(--warn-line); background: var(--warn-soft); color: #93370d; }
+    #account-status { margin: 0 0 16px; border-color: var(--info-line); background: var(--info-soft); color: #1849a9; }
+    #password-status { width: min(420px, calc(100vw - 32px)); margin: 0; }
+    #inbox-status.error { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger); }
+
+    /* ---------- Yan menü ---------- */
+    .admin-nav { position: sticky; top: calc(var(--topbar-h) + 24px); display: grid; gap: 2px; }
+    .admin-nav::before {
+      content: attr(aria-label); padding: 0 12px 8px;
+      color: var(--subtle); font-size: .72rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+    }
+    .admin-nav button, .refund-nav summary {
+      --btn-bg: transparent; --btn-hover: #e9ecf0; --btn-fg: var(--muted);
+      justify-content: flex-start; width: 100%; margin: 0; padding: 8px 12px; border-radius: 8px;
+      font-weight: 550; text-align: start; box-shadow: none;
+    }
+    .admin-nav svg { flex: none; width: 18px; height: 18px; }
+    .admin-nav button[aria-pressed="true"] {
+      --btn-bg: var(--surface); --btn-hover: var(--surface); --btn-fg: var(--brand-deep); --btn-line: var(--line);
+      font-weight: 600; box-shadow: var(--shadow-sm);
+    }
+    .admin-nav button[aria-pressed="true"] svg { color: var(--brand); }
+    .refund-nav { margin: 0; }
+    .refund-nav summary {
+      display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: .9rem; font-weight: 600;
+      list-style: none; cursor: pointer;
+    }
+    .refund-nav summary::-webkit-details-marker { display: none; }
+    .refund-nav summary:hover { background: #e9ecf0; }
+    .refund-nav summary::after {
+      content: ""; width: 6px; height: 6px; margin-left: auto;
+      border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+      transform: rotate(-45deg); opacity: .55; transition: transform .15s;
+    }
+    .refund-nav[open] summary::after { transform: rotate(45deg); }
+    .refund-nav-items { display: grid; gap: 2px; margin: 2px 0 6px 20px; padding-left: 8px; border-left: 1px solid var(--line-strong); }
+
+    /* ---------- Yönetim paneli ---------- */
+    .admin-grid > section > h2, .admin-staff > * > h2 { font-size: 1.15rem; }
+    .admin-grid > section > p:not([role]) { max-width: 72ch; margin: 0 0 20px; color: var(--muted); }
+    #order-import-form, #document-upload-form {
+      padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2);
+    }
+    #order-import-form p { margin: 0 0 10px; color: var(--muted); font-size: .88rem; }
+    #admin-orders code {
+      display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+      color: var(--ink-2); background: var(--surface); font-size: .83rem; overflow-wrap: anywhere;
+    }
+    #document-list { display: grid; gap: 12px; margin-top: 20px; color: var(--subtle); }
+    .document-version {
+      padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius);
+      color: var(--ink); background: var(--surface);
+    }
+    .document-version h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .document-version > p { margin: 4px 0 0; color: var(--subtle); font-size: .84rem; }
+    .document-version > button { margin-right: 8px; padding: 6px 12px; font-size: .85rem; }
+    .document-version details { margin-top: 12px; }
+    .document-text, #admin-documents pre {
+      max-height: 360px; margin: 10px 0 0; padding: 12px 14px; overflow: auto;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
+      font: inherit; font-size: .86rem; white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    .document-approve:disabled:not([aria-busy="true"]) { cursor: default; }
+    .badge {
+      display: inline-flex; align-items: center; padding: 2px 8px; border: 1px solid var(--line);
+      border-radius: 999px; color: var(--muted); background: var(--surface-3);
+      font-size: .74rem; font-weight: 600; letter-spacing: 0;
+    }
+    .badge[data-state="active"] { color: var(--success); background: var(--success-soft); border-color: var(--success-line); }
+    .badge[data-state="pending"] { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+    .hint { margin: 8px 0 0; color: var(--subtle); font-size: .84rem; }
+
+    .admin-staff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+    #employee-directory { grid-column: 2; grid-row: 1 / span 2; }
+    #employee-directory h2 { padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+    #employee-list > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    #employee-list > div:last-child { border-bottom: 0; }
+    #employee-list span { display: flex; align-items: center; gap: 10px; font-weight: 550; }
+    #employee-list span::before {
+      content: ""; flex: none; width: 30px; height: 30px; border-radius: 50%;
+      background: var(--brand-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231d5c45' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6'/%3E%3C/svg%3E") center / 16px no-repeat;
+    }
+    #employee-list button { margin: 0; padding: 5px 12px; font-size: .82rem; }
+    .admin-staff > form h2 { margin-bottom: 16px; }
+    #temporary-password-panel { margin-top: 16px; padding: 14px; border: 1px solid var(--warn-line); border-radius: var(--radius-sm); background: var(--warn-soft); }
+    #temporary-password-panel input { font-family: var(--mono); }
+    #temporary-password-panel p { margin: 8px 0 0; color: #93370d; font-size: .86rem; }
+
+    /* ---------- İade gelen kutusu ---------- */
+    .inbox-grid {
+      display: grid; grid-template-columns: minmax(260px, 330px) minmax(0, 1.3fr) minmax(0, 1fr);
+      gap: 20px; align-items: start; min-width: 0;
+    }
+    .inbox-grid:has(> #inbox-conversation-panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
+    .inbox-grid > section { padding: 20px; }
+    #inbox-list-panel { position: sticky; top: calc(var(--topbar-h) + 24px); }
+    .inbox-grid > section > h2, .inbox-list-heading {
+      margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
+    }
+    .inbox-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .inbox-list-heading h2 { margin: 0; }
+    #inbox-refresh { flex: none; width: 32px; height: 32px; margin: 0; padding: 0; font-size: 1.1rem; }
+    .inbox-meta { margin: 0 0 12px; color: var(--subtle); font-size: .84rem; }
+    #inbox-source { display: inline-flex; align-items: center; gap: 6px; }
+    #inbox-source::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #17b26a; box-shadow: 0 0 0 3px #17b26a26; }
+    #inbox-list { max-height: calc(100vh - 230px); overflow: auto; scrollbar-gutter: stable; margin-right: -6px; padding-right: 2px; }
+    .inbox-grid:has(> #inbox-conversation-panel[hidden]) #inbox-list {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; align-content: start;
+    }
+    .inbox-grid:has(> #inbox-conversation-panel[hidden]) .inbox-mail { margin: 0; }
+    .inbox-mail {
+      --btn-bg: var(--surface); --btn-hover: var(--surface-2); --btn-fg: var(--ink); --btn-line: var(--line);
+      display: grid; justify-content: stretch; justify-items: start; gap: 8px; width: 100%; margin: 0 0 8px; padding: 12px 14px;
+      text-align: left; font-weight: 500; box-shadow: none;
+    }
+    .inbox-mail strong { font-size: .9rem; font-weight: 600; line-height: 1.4; }
+    .inbox-mail small {
+      display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 2px 9px; border-radius: 999px;
+      color: var(--muted); background: var(--surface-3); font-size: .74rem; font-weight: 600;
+    }
+    .inbox-mail small::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .inbox-mail small.inbox-mail-sent::before { display: none; }
+    .inbox-mail[data-tone="success"] small { color: var(--success); background: var(--success-soft); }
+    .inbox-mail[data-tone="warn"] small { color: var(--warn); background: var(--warn-soft); }
+    .inbox-mail[data-tone="info"] small { color: var(--info); background: var(--info-soft); }
+    .inbox-mail[data-tone="brand"] small { color: var(--brand); background: var(--brand-soft); }
+    .inbox-mail[aria-pressed="true"] {
+      --btn-bg: var(--brand-soft); --btn-hover: var(--brand-soft); --btn-line: var(--brand-line);
+      box-shadow: inset 3px 0 0 var(--brand);
+    }
+
+    #inbox-subject { display: block; font-size: 1.1rem; line-height: 1.35; }
+    #inbox-sender { margin: 2px 0 16px; }
+    .inbox-message, .inbox-turn {
+      margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--surface-2); font-size: .9rem; white-space: pre-wrap;
+    }
+    .inbox-message strong, .inbox-turn strong {
+      display: block; margin-bottom: 4px; color: var(--subtle);
+      font-size: .74rem; font-weight: 650; letter-spacing: .05em; text-transform: uppercase;
+    }
+    .inbox-message.customer { border-color: var(--info-line); border-left: 3px solid #2e90fa; background: var(--info-soft); }
+    .inbox-message.sent-reply { border-color: var(--success-line); border-left: 3px solid #17b26a; background: var(--success-soft); }
+    #inbox-order-check { white-space: normal; }
+    #inbox-order-check[data-status="verified"] { border-color: var(--success-line); border-left: 3px solid #17b26a; background: var(--success-soft); }
     #inbox-order-check[data-status="unmatched"], #inbox-order-check[data-status="review"] {
-      border-inline-start: 3px solid #a76717; background: #fdf5e8;
+      border-color: var(--warn-line); border-left: 3px solid #f79009; background: var(--warn-soft);
     }
-    #inbox-draft-panel:not([hidden]) { padding-top: 12px; border-top: 1px solid var(--line); }
-    #inbox-send { min-width: 112px; }
-    #inbox-revise, #password-cancel { color: var(--brand); background: #e7f1eb; }
-    #admin-orders code { display: block; padding: 9px; background: #eef4ef; border-radius: 8px; overflow-wrap: anywhere; }
-    #document-list > section { background: #f8fbf9; margin: 12px 0 0; padding: 14px; }
-    @media (max-width: 1050px) { .inbox-grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 640px) {
-      header { padding: 14px; margin-bottom: 16px; }
-      header p { margin-left: 0; }
-      .inbox-grid > section { padding: 16px; }
-      #inbox-list { max-height: 36vh; }
+    #inbox-order-summary { white-space: pre-line; }
+    #inbox-return-window {
+      display: inline-flex; gap: 6px; margin: 10px 0 0; padding: 3px 10px; border-radius: 999px;
+      color: var(--muted); background: var(--surface-3); font-size: .82rem; font-weight: 600;
+    }
+    #inbox-return-window[data-window="yes"] { color: var(--success); background: #d1fadf; }
+    #inbox-return-window[data-window="no"] { color: var(--danger); background: #fee4e2; }
+    #inbox-attachments::before { content: "📎 "; }
+    #inbox-thread { max-height: 340px; overflow: auto; }
+    #inbox-thread:not(:empty) { margin-top: 16px; padding-top: 4px; border-top: 1px solid var(--line); }
+    .inbox-turn { max-width: 90%; background: var(--surface); }
+    .inbox-turn strong { color: var(--brand); }
+    .inbox-turn.employee { margin-left: auto; border-color: var(--brand-line); background: var(--brand-soft); }
+    .inbox-grid form { margin-top: 16px; }
+    #inbox-answers > div > label { font-weight: 500; }
+    #inbox-answers > div > label > :is(select, input) { margin-top: 6px; }
+    #inbox-answers > div + div { margin-top: 12px; }
+    #inbox-chat button { margin-right: 6px; }
+    #inbox-draft-empty {
+      margin: 0; padding: 32px 20px; border: 1px dashed var(--line-strong); border-radius: var(--radius);
+      background: var(--surface-2); text-align: center;
+    }
+    #inbox-draft-panel { margin-top: 0; }
+    #inbox-draft { min-height: 220px; max-height: 56vh; }
+    #inbox-policy-sources ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: .86rem; }
+    #inbox-send { min-width: 120px; }
+    #inbox-send-status { margin: 10px 0 0; font-size: .84rem; }
+
+    details { margin-top: 14px; }
+    summary { padding: 2px 0; color: var(--ink-2); font-size: .88rem; font-weight: 600; cursor: pointer; }
+    summary:hover { color: var(--brand); }
+
+    /* ---------- Prompt Geliştirici ---------- */
+    #prompt-work { display: flex; flex-direction: column; max-width: 1040px; padding: 0; overflow: hidden; }
+    .prompt-heading, .prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .prompt-heading { justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid var(--line); }
+    .prompt-heading h2, .prompt-heading button { margin: 0; }
+    .prompt-heading button { padding: 6px 12px; font-size: .85rem; }
+    .prompt-subtitle { margin: 2px 0 0; color: var(--subtle); font-size: .86rem; }
+    .prompt-steps {
+      display: flex; gap: 4px; margin: 0; padding: 10px 24px; list-style: none;
+      border-bottom: 1px solid var(--line); counter-reset: step; font-size: .82rem;
+    }
+    .prompt-steps li {
+      display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px;
+      color: var(--subtle); font-weight: 550; counter-increment: step;
+    }
+    .prompt-steps li::before {
+      content: counter(step); display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+      color: var(--muted); background: var(--surface-3); font-size: .75rem; font-weight: 650;
+    }
+    .prompt-steps li + li { position: relative; margin-left: 18px; }
+    .prompt-steps li + li::after {
+      content: ""; position: absolute; left: -18px; top: 50%; width: 14px; border-top: 1px solid var(--line-strong);
+    }
+    #prompt-work[data-phase="ask"] [data-step="ask"],
+    #prompt-work[data-phase="confirm"] [data-step="confirm"],
+    #prompt-work[data-phase="answered"] [data-step="answered"] { color: var(--brand-deep); background: var(--brand-soft); }
+    #prompt-work[data-phase="ask"] [data-step="ask"]::before,
+    #prompt-work[data-phase="confirm"] [data-step="confirm"]::before,
+    #prompt-work[data-phase="answered"] [data-step="answered"]::before { color: #fff; background: var(--brand); }
+    #prompt-work[data-phase="confirm"] [data-step="ask"]::before,
+    #prompt-work[data-phase="answered"] :is([data-step="ask"], [data-step="confirm"])::before {
+      content: "✓"; color: var(--success); background: var(--success-soft);
+    }
+    .prompt-conversation {
+      display: grid; align-content: start; gap: 14px; min-height: 260px; max-height: calc(100vh - 440px);
+      padding: 24px; overflow: auto; background: var(--surface-2);
+    }
+    .prompt-conversation:empty { display: grid; place-content: center; }
+    .prompt-conversation:empty::before {
+      content: "Kısa bir soru yaz. NETLE ne demek istediğini teyit eder; onayladığında onaylı şirket belgelerini tarayıp politikaya uygun bir yanıt ve müşteri taslağı hazırlar.";
+      max-width: 50ch; color: var(--subtle); text-align: center;
+    }
+    .prompt-message {
+      width: fit-content; max-width: min(100%, 720px); padding: 12px 16px;
+      border: 1px solid var(--line); border-radius: 14px; border-bottom-left-radius: 4px;
+      background: var(--surface); box-shadow: var(--shadow-xs); overflow-wrap: anywhere;
+    }
+    .prompt-message > strong:first-child {
+      display: block; color: var(--brand); font-size: .72rem; font-weight: 650; letter-spacing: .05em; text-transform: uppercase;
+    }
+    .prompt-message.user {
+      justify-self: end; border-color: transparent; border-radius: 14px; border-bottom-right-radius: 4px;
+      color: #fff; background: var(--brand);
+    }
+    .prompt-message.user > strong:first-child { color: #bfe3d0; }
+    .prompt-message p { margin: 4px 0 0; white-space: pre-wrap; }
+    .prompt-message.confirm { width: min(100%, 640px); }
+    .prompt-message.confirm blockquote {
+      margin: 8px 0 0; padding: 10px 14px; border-left: 3px solid var(--brand); border-radius: 0 8px 8px 0;
+      color: var(--ink); background: var(--brand-soft); font-weight: 550;
+    }
+    .confirm-lead { font-weight: 600; }
+    .confirm-note { color: var(--muted); font-size: .88rem; }
+    .prompt-message.confirm ul { margin: 4px 0 0; padding-left: 20px; color: var(--muted); font-size: .88rem; }
+    .confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .confirm-actions button { margin: 0; padding: 6px 14px; font-size: .86rem; }
+    .prompt-message.superseded { opacity: .6; }
+    .prompt-message.accepted blockquote::after {
+      content: "✓ Onaylandı"; display: block; margin-top: 6px; color: var(--success); font-size: .78rem; font-weight: 650;
+    }
+    .prompt-message.superseded blockquote { border-left-color: var(--line-strong); background: var(--surface-3); text-decoration: line-through; text-decoration-color: #98a2b3; }
+    .prompt-message.result { width: min(100%, 780px); }
+    .result-label {
+      margin-top: 16px !important; color: var(--subtle); font-size: .74rem; font-weight: 650;
+      letter-spacing: .05em; text-transform: uppercase;
+    }
+    .result-question { color: var(--muted); font-style: italic; }
+    .answer-text { line-height: 1.6; }
+    .cite {
+      display: inline-grid; place-items: center; min-width: 17px; height: 17px; margin: 0 2px; padding: 0 4px;
+      border-radius: 5px; color: var(--brand-deep); background: var(--brand-soft-2, #d7ebe0);
+      font-size: .68rem; font-weight: 700; vertical-align: super; line-height: 1;
+    }
+    .result-note { color: var(--subtle); font-size: .82rem; }
+    .prompt-message details { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+    .source-list { display: grid; gap: 8px; margin-top: 8px; }
+    .source-item { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+    .source-item strong { display: block; color: var(--ink-2); font-size: .84rem; }
+    .source-item p { max-height: 9.5em; overflow: auto; color: var(--muted); font-size: .84rem; }
+    .prompt-message textarea { margin-top: 8px; }
+    .prompt-copy { margin-top: 8px; padding: 6px 12px; font-size: .85rem; }
+    .prompt-divider {
+      display: flex; align-items: center; gap: 12px; color: var(--subtle); font-size: .74rem; font-weight: 650;
+      letter-spacing: .05em; text-transform: uppercase;
+    }
+    .prompt-divider::before, .prompt-divider::after { content: ""; flex: 1; border-top: 1px solid var(--line-strong); }
+    #prompt-status { margin: 0; padding: 10px 24px; border-top: 1px solid var(--line); background: var(--surface); }
+    #prompt-form { padding: 16px 24px 20px; border-top: 1px solid var(--line); background: var(--surface); }
+    #prompt-form .field { margin-bottom: 12px; }
+    .prompt-actions { justify-content: space-between; flex-wrap: nowrap; }
+    .prompt-actions small { margin: 0; }
+    .prompt-actions button { flex: none; margin: 0; min-width: 110px; }
+
+    /* ---------- Duyarlı düzen ---------- */
+    @media (max-width: 1320px) {
+      .inbox-grid { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
+      #inbox-response-panel { grid-column: 2; }
+    }
+    @media (max-width: 1100px) {
+      .admin-staff { grid-template-columns: minmax(0, 1fr); }
+      #employee-directory { grid-column: auto; grid-row: auto; }
+      .inbox-grid { grid-template-columns: minmax(0, 1fr); }
+      #inbox-response-panel { grid-column: auto; }
+      #inbox-list-panel { position: static; }
+      #inbox-list { max-height: 40vh; }
+    }
+    @media (max-width: 860px) {
+      #employee-description { display: none; }
+      .admin-grid, .employee-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+      .admin-nav { position: static; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+      .admin-nav::before { display: none; }
+      #admin-work .admin-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      #admin-work .admin-nav button { justify-content: center; padding-inline: 6px; font-size: .84rem; }
+    }
+    @media (max-width: 560px) {
+      main { padding-top: 16px; }
+      .inbox-grid > section, .admin-grid > section, .admin-staff > section, .admin-staff > form { padding: 16px; }
+      #account-form, #password-form { padding: 24px; }
+      .prompt-heading, .prompt-steps, .prompt-conversation, #prompt-form, #prompt-status { padding-inline: 16px; }
+      .prompt-steps { overflow-x: auto; }
+      .prompt-steps li { white-space: nowrap; }
+      .prompt-actions { flex-wrap: wrap; }
+      #admin-work .admin-nav svg { display: none; }
     }
   </style>
 </head>
 <body>
-<main>
-  <header>
-    <div class="header-row">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">N</span>
-        <h1 id="workspace-title">Netle</h1>
-      </div>
-      <div id="account-menu" class="account-menu" hidden>
-        <button id="employee-name" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="account-dropdown"></button>
-        <div id="account-dropdown" class="account-dropdown" hidden>
-          <button id="change-password-open" type="button">Parolayı değiştir</button>
-          <button id="logout" type="button">Çıkış yap</button>
-        </div>
-      </div>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">N</span>
+    <div class="brand-text">
+      <h1 id="workspace-title">Netle</h1>
+      <p id="employee-description">Şirket kaynaklarıyla müşteri yanıtı ve görev promptu hazırla.</p>
     </div>
-    <p id="employee-description">Şirket kaynaklarıyla müşteri yanıtı ve görev promptu hazırla.</p>
-  </header>
+  </div>
+  <div id="account-menu" class="account-menu" hidden>
+    <button id="employee-name" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="account-dropdown"></button>
+    <div id="account-dropdown" class="account-dropdown" hidden>
+      <button id="change-password-open" type="button">Parolayı değiştir</button>
+      <button id="logout" type="button">Çıkış yap</button>
+    </div>
+  </div>
+</header>
+<main>
   <form id="account-form" hidden>
+    <div class="auth-brand"><span class="brand-mark" aria-hidden="true">N</span>Netle</div>
     <h2 id="account-title">Çalışan girişi</h2>
+    <p class="auth-lead">Müşteri hizmetleri çalışma alanına erişmek için oturum aç.</p>
     <p id="login-status" role="status"></p>
     <div class="field">
       <label for="username">Kullanıcı adı</label>
@@ -199,21 +533,26 @@
       <input id="password" type="password" autocomplete="current-password" maxlength="128" required>
     </div>
     <button id="account-submit" type="submit">Oturum aç</button>
+    <p class="auth-foot">Hesabın yoksa yöneticinden çalışan hesabı iste.</p>
   </form>
   <p id="account-status" role="status"></p>
   <form id="password-form" hidden onsubmit="return false">
+    <div class="auth-brand"><span class="brand-mark" aria-hidden="true">N</span>Netle</div>
     <h2>Parolayı değiştir</h2>
+    <p class="auth-lead">Yeni parolan bir sonraki girişinden itibaren geçerli olur.</p>
     <div class="field"><label for="current-password">Mevcut parola</label><input id="current-password" type="password" autocomplete="current-password" maxlength="128" required></div>
     <div class="field"><label for="new-password">Yeni parola</label><input id="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" pattern=".*[0-9].*" aria-describedby="new-password-hint" required><small id="new-password-hint">En az 8 karakter ve bir rakam kullan.</small></div>
-    <button type="submit">Parolayı güncelle</button>
-    <button id="password-cancel" type="button">Vazgeç</button>
+    <div class="form-actions">
+      <button id="password-cancel" type="button">Vazgeç</button>
+      <button type="submit">Parolayı güncelle</button>
+    </div>
   </form>
   <p id="password-status" role="status"></p>
   <div id="admin-work" class="admin-grid" hidden>
-    <nav class="admin-nav" aria-label="Yönetim bölümleri">
-      <button type="button" aria-controls="admin-orders" aria-pressed="true">Sipariş kayıtları</button>
-      <button type="button" aria-controls="admin-documents" aria-pressed="false">Şirket belgeleri</button>
-      <button type="button" aria-controls="admin-staff" aria-pressed="false">Çalışanlar</button>
+    <nav class="admin-nav" aria-label="Yönetim">
+      <button type="button" aria-controls="admin-orders" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>Sipariş kayıtları</button>
+      <button type="button" aria-controls="admin-documents" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Şirket belgeleri</button>
+      <button type="button" aria-controls="admin-staff" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.4 3.4-5.5 6.5-5.5s5.7 2.1 6.5 5.5M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.6 3 5.2"/></svg>Çalışanlar</button>
     </nav>
     <section id="admin-orders">
       <h2>Sipariş kayıtları</h2>
@@ -275,10 +614,15 @@
     </div>
   </div>
   <div id="employee-work" class="employee-layout" hidden>
-    <nav class="admin-nav" aria-label="Çalışan araçları">
-      <button id="inbox-open" type="button" aria-controls="inbox-list-panel" aria-pressed="true">Açık iade talepleri</button>
-      <button id="inbox-closed" type="button" aria-controls="inbox-list-panel" aria-pressed="false">Kapanan iade talepleri</button>
-      <button id="work-prompt" type="button" aria-controls="prompt-work" aria-pressed="false">Prompt Geliştirici</button>
+    <nav class="admin-nav" aria-label="Çalışma alanı">
+      <details class="refund-nav" open>
+        <summary><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>İade Talepleri</summary>
+        <div class="refund-nav-items">
+          <button id="inbox-open" type="button" aria-controls="inbox-list-panel" aria-pressed="true">Açık iade talepleri</button>
+          <button id="inbox-closed" type="button" aria-controls="inbox-list-panel" aria-pressed="false">Kapanan iade talepleri</button>
+        </div>
+      </details>
+      <button id="work-prompt" type="button" aria-controls="prompt-work" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>Prompt Geliştirici</button>
     </nav>
     <div id="refund-work" class="inbox-grid" aria-label="İade Asistanı">
       <section id="inbox-list-panel" aria-labelledby="inbox-title">
@@ -343,33 +687,31 @@
       </section>
     </div>
     <section id="prompt-work" aria-labelledby="prompt-title" hidden>
-      <h2 id="prompt-title">Prompt Geliştirici</h2>
+      <div class="prompt-heading">
+        <div>
+          <h2 id="prompt-title">Prompt Geliştirici</h2>
+          <p class="prompt-subtitle">Sorunu yaz. NETLE doğru anladığını teyit eder, ardından onaylı şirket belgelerinden yanıtlar.</p>
+        </div>
+        <button id="prompt-reset" type="button" hidden>Yeni soru</button>
+      </div>
+      <ol class="prompt-steps" aria-label="Aşamalar">
+        <li data-step="ask">Soru</li>
+        <li data-step="confirm">Anlamı onayla</li>
+        <li data-step="answered">Politikaya uygun yanıt</li>
+      </ol>
+      <div id="prompt-conversation" class="prompt-conversation" role="log" aria-label="Prompt sohbeti"></div>
+      <p id="prompt-status" role="status"></p>
       <form id="prompt-form">
         <div class="field">
-          <label for="prompt-request">Müşteri hizmetleri isteğin</label>
-          <textarea id="prompt-request" rows="4" maxlength="3000" required
-                    placeholder="Örn. Hasarlı ürün bildirimi yapan müşteriye hangi bilgileri göndermesi gerektiğini açıkla."></textarea>
+          <label for="prompt-request">NETLE’ye yaz</label>
+          <textarea id="prompt-request" rows="3" maxlength="1500" required
+                    placeholder="Örn. kupa kırık gelmiş ne diyim"></textarea>
         </div>
-        <div id="prompt-questions"></div>
-        <label class="delivery-unknown">
-          <input id="prompt-preview" type="checkbox"> Yanıt taslağını da önizle
-        </label>
-        <button id="prompt-submit" type="submit">Promptu geliştir</button>
-        <button id="prompt-reset" type="button" hidden>Yeni istek</button>
+        <div class="prompt-actions">
+          <small id="prompt-hint"></small>
+          <button id="prompt-submit" type="submit">Gönder</button>
+        </div>
       </form>
-      <p id="prompt-status" role="status"></p>
-      <div id="prompt-result" hidden>
-        <label for="prompt-output">Geliştirilmiş prompt</label>
-        <textarea id="prompt-output" rows="8" readonly></textarea>
-        <button id="prompt-copy" type="button">Promptu kopyala</button>
-        <h3>Değişiklikler ve gerekçeleri</h3>
-        <ul id="prompt-changes"></ul>
-        <div id="prompt-draft-panel" hidden>
-          <label for="prompt-draft">Yanıt taslağı</label>
-          <textarea id="prompt-draft" rows="6"></textarea>
-        </div>
-      </div>
-      <div id="prompt-sources"></div>
     </section>
   </div>
 </main>
@@ -452,7 +794,7 @@
 
   const promptElement = name => document.getElementById('prompt-' + name);
   const promptTab = document.getElementById('work-prompt');
-  let promptAnswers = [];
+  let promptChat = {phase: 'ask', request: '', corrections: [], interpretation: ''};
   let promptRevision = 0;
 
   promptTab.addEventListener('click', () => {
@@ -473,114 +815,268 @@
     document.getElementById('inbox-' + filter).addEventListener('click', showRefundWork);
   }
 
-  function resetPrompt() {
-    promptRevision++;
-    promptAnswers = [];
-    promptElement('form').reset();
-    for (const name of ['questions', 'sources', 'changes', 'status']) {
-      promptElement(name).replaceChildren();
-    }
-    for (const name of ['output', 'draft']) promptElement(name).value = '';
-    for (const name of ['result', 'draft-panel', 'reset']) promptElement(name).hidden = true;
-    promptElement('request').readOnly = false;
-    promptElement('submit').hidden = false;
-    promptElement('submit').disabled = false;
-    promptElement('submit').textContent = 'Promptu geliştir';
+  // Prompt Geliştirici: soru → "Bunu mu demek istediniz?" → onay → belgelerden yanıt.
+  const PROMPT_YES = /^(evet|e|aynen|doğru|dogru|tamam|tamamdır|evet doğru|evet,? bunu demek istedim|bunu demek istedim|onaylıyorum|onay)[\s.!]*$/;
+  const PROMPT_HINTS = {
+    ask: 'Kısa yazman yeterli. NETLE anlamadığı yerleri sorar.',
+    confirm: 'Yorum doğruysa “Evet” de. Değilse düzeltmeni veya eksik bilgiyi yaz.',
+    answered: 'Yeni bir soru yazabilirsin.',
+  };
+  let activeConfirm = null;
+
+  function setPromptPhase(phase) {
+    promptChat.phase = phase;
+    promptElement('work').dataset.phase = phase;
+    const input = promptElement('request');
+    input.maxLength = phase === 'confirm' ? 800 : 1500;
+    input.placeholder = phase === 'confirm' ? '“Evet” yaz ya da neyi yanlış anladığımı yaz.'
+      : phase === 'answered' ? 'Yeni bir soru yaz.' : 'Örn. kupa kırık gelmiş ne diyim';
+    promptElement('hint').textContent = PROMPT_HINTS[phase];
   }
 
-  function showPromptSources(sources) {
-    promptElement('sources').replaceChildren(...sources.map(source => {
-      const details = document.createElement('details');
-      const heading = document.createElement('summary');
-      heading.textContent = source.title + ' · v' + source.version;
+  function setPromptBusy(value) {
+    promptElement('submit').disabled = value;
+    promptElement('request').readOnly = value;
+    for (const button of activeConfirm?.querySelectorAll('.confirm-actions button') || []) {
+      button.disabled = value;
+    }
+  }
+
+  function resetPrompt() {
+    promptRevision++;
+    promptChat = {phase: 'ask', request: '', corrections: [], interpretation: ''};
+    activeConfirm = null;
+    promptElement('form').reset();
+    promptElement('conversation').replaceChildren();
+    promptElement('status').textContent = '';
+    promptElement('reset').hidden = true;
+    setPromptBusy(false);
+    setPromptPhase('ask');
+  }
+
+  function appendPromptMessage(role, message) {
+    const turn = document.createElement('div');
+    turn.className = 'prompt-message' + (role === 'Sen' ? ' user' : '');
+    const author = document.createElement('strong');
+    author.textContent = role;
+    turn.append(author);
+    if (message) {
+      const body = document.createElement('p');
+      body.textContent = message;
+      turn.append(body);
+    }
+    promptElement('conversation').append(turn);
+    scrollPromptChat();
+    return turn;
+  }
+
+  function scrollPromptChat() {
+    const conversation = promptElement('conversation');
+    conversation.scrollTop = conversation.scrollHeight;
+  }
+
+  function promptDetails(title, ...content) {
+    const details = document.createElement('details');
+    const heading = document.createElement('summary');
+    heading.textContent = title;
+    details.append(heading, ...content);
+    return details;
+  }
+
+  function promptBlock(className, text) {
+    const element = document.createElement('p');
+    element.className = className;
+    element.textContent = text;
+    return element;
+  }
+
+  function closeActiveConfirm(state = 'superseded') {
+    activeConfirm?.querySelector('.confirm-actions')?.remove();
+    activeConfirm?.classList.add(state);
+    activeConfirm = null;
+  }
+
+  function appendConfirm(data) {
+    closeActiveConfirm();
+    const turn = appendPromptMessage('NETLE');
+    turn.classList.add('confirm');
+    const quote = document.createElement('blockquote');
+    quote.textContent = data.interpretation;
+    turn.append(promptBlock('confirm-lead', 'Bunu mu demek istediniz?'), quote);
+    if (data.unclear.length) {
+      const list = document.createElement('ul');
+      showList(list, data.unclear);
+      turn.append(promptBlock('confirm-note', 'Emin olamadığım noktalar:'), list);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'confirm-actions';
+    const yes = document.createElement('button');
+    yes.type = 'button';
+    yes.textContent = 'Evet, doğru';
+    yes.addEventListener('click', () => confirmPrompt('Evet, doğru.'));
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.className = 'secondary';
+    no.textContent = 'Hayır, düzelteyim';
+    no.addEventListener('click', () => {
+      promptElement('status').textContent = 'Neyi yanlış anladığımı veya eksik bilgiyi yazıp gönder.';
+      promptElement('request').focus();
+    });
+    actions.append(yes, no);
+    turn.append(actions);
+    activeConfirm = turn;
+    scrollPromptChat();
+  }
+
+  function citedText(text) {
+    // "[2]" gibi kaynak işaretlerini görsel etikete çevir; metin textContent ile eklenir.
+    const paragraph = document.createElement('p');
+    paragraph.className = 'answer-text';
+    for (const part of text.split(/(\[\d{1,2}\])/)) {
+      if (/^\[\d{1,2}\]$/.test(part)) {
+        const cite = document.createElement('sup');
+        cite.className = 'cite';
+        cite.textContent = part.slice(1, -1);
+        paragraph.append(cite);
+      } else if (part) {
+        paragraph.append(part);
+      }
+    }
+    return paragraph;
+  }
+
+  function sourceList(sources) {
+    const list = document.createElement('div');
+    list.className = 'source-list';
+    for (const source of sources) {
+      const item = document.createElement('div');
+      item.className = 'source-item';
+      const title = document.createElement('strong');
+      title.textContent = (source.number ? '[' + source.number + '] ' : '') + source.title + ' · v' + source.version;
       const passage = document.createElement('p');
-      passage.className = 'document-text';
       passage.textContent = source.text;
-      details.append(heading, passage);
-      return details;
-    }));
+      item.append(title, passage);
+      list.append(item);
+    }
+    return list;
+  }
+
+  function appendAnswer(data) {
+    const turn = appendPromptMessage('NETLE');
+    turn.classList.add('result');
+    turn.append(promptBlock('result-label', 'Onaylanan soru'), promptBlock('result-question', data.question),
+      promptBlock('result-label', 'Şirket politikasına göre'), citedText(data.answer));
+    if (data.draft) {
+      const draft = document.createElement('textarea');
+      draft.rows = Math.min(12, Math.max(5, data.draft.split('\n').length + 1));
+      draft.value = data.draft;
+      draft.setAttribute('aria-label', 'Müşteriye yanıt taslağı');
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'prompt-copy';
+      copy.textContent = 'Taslağı kopyala';
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(draft.value);
+          if (turn.isConnected) promptElement('status').textContent = 'Taslak kopyalandı.';
+        } catch {
+          draft.focus();
+          draft.select();
+          promptElement('status').textContent = 'Taslak seçildi. Klavyeden kopyalayabilirsin.';
+        }
+      });
+      turn.append(promptBlock('result-label', 'Müşteriye yanıt taslağı'), draft, copy,
+        promptBlock('result-note', 'Göndermeden önce taslağı kontrol et ve gerekirse düzenle.'));
+    }
+    if (data.sources.length) {
+      turn.append(promptDetails('Kaynaklar (' + data.sources.length + ')', sourceList(data.sources)));
+    }
+    scrollPromptChat();
+  }
+
+  async function runPrompt(payload, userText, busyText) {
+    const revision = promptRevision;
+    const turn = appendPromptMessage('Sen', userText);
+    promptElement('reset').hidden = false;
+    promptElement('status').textContent = busyText;
+    setPromptBusy(true);
+    try {
+      const data = await post('/api/prompt', payload);
+      if (revision !== promptRevision) return null;
+      promptElement('status').textContent = '';
+      return data;
+    } catch (error) {
+      if (revision === promptRevision) {
+        turn.remove();
+        promptElement('request').value = userText;
+        promptElement('status').textContent = error.message;
+      }
+      return null;
+    } finally {
+      if (revision === promptRevision) {
+        setPromptBusy(false);
+        if (!promptElement('work').hidden) promptElement('request').focus();
+      }
+    }
+  }
+
+  async function confirmPrompt(userText) {
+    if (promptChat.phase !== 'confirm' || promptElement('submit').disabled) return;
+    promptElement('request').value = '';
+    const data = await runPrompt({
+      action: 'answer', request: promptChat.request, corrections: promptChat.corrections,
+      confirmed: promptChat.interpretation,
+    }, userText, 'Onaylı şirket belgeleri taranıyor ve yanıt hazırlanıyor…');
+    if (!data) return;
+    closeActiveConfirm('accepted');
+    if (data.status === 'answered') {
+      appendAnswer(data);
+    } else {
+      const reply = appendPromptMessage('NETLE', data.message);
+      if (data.sources?.length) reply.append(promptDetails('İncelenen bölümler', sourceList(data.sources)));
+    }
+    setPromptPhase('answered');
   }
 
   promptElement('reset').addEventListener('click', () => {
     resetPrompt();
     promptElement('request').focus();
   });
-  promptElement('copy').addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(promptElement('output').value);
-      promptElement('status').textContent = 'Prompt kopyalandı.';
-    } catch {
-      promptElement('output').select();
-      promptElement('status').textContent = 'Prompt seçildi. Klavyeden kopyalayabilirsin.';
-    }
-  });
+
   promptElement('form').addEventListener('submit', async event => {
     event.preventDefault();
-    const submit = promptElement('submit');
-    const request = promptElement('request');
-    if (submit.disabled || submit.hidden) return;
-    const revision = promptRevision;
-    const answers = [...promptAnswers, ...Array.from(
-      promptElement('questions').querySelectorAll('textarea'),
-      input => [input.labels[0].textContent, input.value.trim()]
-    )];
-    submit.disabled = true;
-    request.readOnly = true;
-    promptElement('reset').hidden = false;
-    promptElement('status').textContent = 'İstek ve şirket kaynakları inceleniyor…';
-    try {
-      const data = await post('/api/prompt', {
-        request: request.value, answers, preview: promptElement('preview').checked
-      });
-      if (revision !== promptRevision) return;
-      promptAnswers = answers;
-      promptElement('questions').replaceChildren();
-      promptElement('status').textContent = data.message || '';
-      showPromptSources(data.sources || []);
-      if (data.status === 'clarify') {
-        for (const [index, question] of data.questions.entries()) {
-          const field = document.createElement('div');
-          field.className = 'field';
-          const input = document.createElement('textarea');
-          input.id = 'prompt-answer-' + index;
-          input.rows = 2;
-          input.maxLength = 1200;
-          input.required = true;
-          input.placeholder = 'Bilmiyorsan “Bilinmiyor” yaz.';
-          const label = document.createElement('label');
-          label.htmlFor = input.id;
-          label.textContent = question;
-          field.append(label, input);
-          promptElement('questions').append(field);
-        }
-        submit.textContent = 'Bilgileri ilet';
-        promptElement('questions').querySelector('textarea').focus();
-      } else {
-        submit.hidden = true;
-      }
-      if (data.status === 'ready') {
-        promptElement('output').value = data.prompt;
-        const sources = new Map(data.sources.map(source => [source.id, source]));
-        showList(promptElement('changes'), data.changes.map(change => {
-          const source = sources.get(change.source);
-          const label = source ? source.title + ' · v' + source.version : 'İstek ve netleştirme yanıtları';
-          return change.change + ' — ' + change.reason + ' (' + label + ')';
-        }));
-        promptElement('draft').value = data.draft || '';
-        promptElement('draft-panel').hidden = !data.draft;
-        promptElement('result').hidden = false;
-        promptElement('status').textContent = 'Geliştirilmiş prompt hazır.';
-      }
-    } catch (error) {
-      if (revision === promptRevision) {
-        promptElement('status').textContent = error.message;
-        request.readOnly = Boolean(promptElement('questions').children.length);
-      }
-    } finally {
-      if (revision === promptRevision) submit.disabled = false;
+    const input = promptElement('request');
+    const message = input.value.trim();
+    if (promptElement('submit').disabled || !message) return;
+    if (promptChat.phase === 'confirm' && PROMPT_YES.test(message.toLocaleLowerCase('tr'))) {
+      await confirmPrompt(message);
+      return;
     }
+    const correcting = promptChat.phase === 'confirm';
+    if (!correcting && promptElement('conversation').childElementCount) {
+      const divider = document.createElement('div');
+      divider.className = 'prompt-divider';
+      divider.textContent = 'Yeni soru';
+      promptElement('conversation').append(divider);
+    }
+    const next = correcting
+      ? {...promptChat, corrections: [...promptChat.corrections, message]}
+      : {phase: 'ask', request: message, corrections: [], interpretation: ''};
+    input.value = '';
+    const data = await runPrompt({
+      action: 'interpret', request: next.request, corrections: next.corrections,
+      previous: correcting ? promptChat.interpretation : '',
+    }, message, correcting ? 'Yorum düzeltmene göre güncelleniyor…' : 'Soru yorumlanıyor…');
+    if (!data) {
+      promptElement('conversation').lastElementChild?.classList.contains('prompt-divider')
+        && promptElement('conversation').lastElementChild.remove();
+      return;
+    }
+    promptChat = {...next, interpretation: data.interpretation};
+    appendConfirm(data);
+    setPromptPhase('confirm');
   });
-
+  setPromptPhase('ask');
   function setBusy(value) {
     busy = value;
     for (const button of buttons) button.disabled = value;
@@ -666,6 +1162,7 @@
         const button = document.createElement('button');
         button.type = 'button';
         button.textContent = 'Sil';
+        button.className = 'danger-ghost';
         button.setAttribute('aria-label', username + ' adlı çalışanı sil');
         button.addEventListener('click', () => deleteEmployee(username, button));
         row.append(label, button);
@@ -795,7 +1292,11 @@
       const heading = document.createElement('h3');
       const stateLabel = entry.status === 'active' ? `v${entry.version} etkin`
         : entry.status === 'archived' ? `v${entry.version} arşivlendi` : 'onay bekliyor';
-      heading.textContent = `${entry.title} · ${stateLabel}`;
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.dataset.state = entry.status;
+      badge.textContent = stateLabel;
+      heading.append(entry.title, badge);
       const meta = document.createElement('p');
       meta.textContent = `${entry.filename} · Yüklendi: ${entry.uploaded_at}`
         + (entry.reviewed_at ? ` · İncelendi: ${entry.reviewed_at}` : '');
@@ -819,6 +1320,7 @@
         approve.disabled = true;
         approve.textContent = entry.has_active_version ? 'Yeni sürümü onayla ve etkinleştir' : 'Belgeyi onayla ve etkinleştir';
         const reviewHint = document.createElement('p');
+        reviewHint.className = 'hint';
         reviewHint.textContent = 'Onaylamak için önce “Tüm metni görüntüle” seçeneğini aç.';
         let loadingReview = false;
         let reviewLoaded = false;
@@ -861,7 +1363,7 @@
         const reject = document.createElement('button');
         reject.type = 'button';
         reject.textContent = 'Reddet';
-        reject.style.background = '#6f3333';
+        reject.className = 'danger-ghost';
         reject.addEventListener('click', async () => {
           const status = document.querySelector('#document-status');
           reject.disabled = true;
@@ -879,7 +1381,7 @@
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.textContent = 'Belgeyi sil';
-      remove.style.background = '#6f3333';
+      remove.className = 'danger-ghost';
       remove.addEventListener('click', async () => {
         if (currentRole !== 'admin' || !confirm(entry.filename + ' adlı belge sürümü silinsin mi?')) return;
         const status = document.querySelector('#document-status');
@@ -1014,6 +1516,7 @@
   logoutButton.addEventListener('click', async () => {
     if (logoutButton.disabled) return;
     logoutButton.disabled = true;
+    logoutButton.textContent = 'Çıkış yapılıyor…';
     try {
       await post('/api/account', {action: 'logout'});
       accountForm.reset();
@@ -1023,6 +1526,7 @@
       accountStatus.textContent = error.message;
     } finally {
       logoutButton.disabled = false;
+      logoutButton.textContent = 'Çıkış yap';
     }
   });
 

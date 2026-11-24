@@ -7,7 +7,7 @@ import sqlite3
 from contextlib import closing
 from dataclasses import asdict
 from datetime import date
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import uuid4
 
@@ -573,7 +573,8 @@ def main():
     with closing(sqlite3.connect(args.db)) as db:
         setup(db)
         ensure_admin_from_env(db)
-    with HTTPServer(("127.0.0.1", args.port), Handler) as server:
+    # Ollama and Gmail calls can take a while; threads keep logout and other requests from queueing behind them.
+    with ThreadingHTTPServer(("127.0.0.1", args.port), Handler) as server:
         server.db_path = args.db
         print(f"Netle: http://127.0.0.1:{server.server_port}", flush=True)
         try:

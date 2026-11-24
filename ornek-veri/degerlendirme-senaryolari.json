@@ -1,0 +1,21 @@
+[
+  {
+    "id": "P01",
+    "ilk_istek": "Müşteri lambayı iade etmek istiyo, kutuyu açmış. Ne yazalım?",
+    "ilk_bilgiler": {"ürün": "Masa lambası", "neden": "Fikir değişikliği"},
+    "ek_bilgiler": [
+      ["Teslimattan kaç gün geçti?", "12 takvim günü geçti."],
+      ["Ürün kullanıldı mı ve aksesuarlar tam mı?", "Ürün kullanılmadı ve tüm aksesuarlar tam."]
+    ],
+    "referans": "Kutu açılmış olsa da bu standart iade yapılabilir. Müşteriye Hesabım → Siparişlerim → İade Talebi yolunu göster. Sistemde iade kaydı açıldığını söyleme."
+  },
+  {
+    "id": "P02",
+    "ilk_istek": "Vazo kırık gelmiş, 32 gün olmuş. Müşteriye ne diyim?",
+    "ilk_bilgiler": {"sipariş numarası": "ORNEK-103"},
+    "ek_bilgiler": [
+      ["Müşteri fotoğraf gönderdi mi?", "Ürün veya dış ambalaj fotoğrafı henüz gönderilmedi."]
+    ],
+    "referans": "Hasarlı teslimat incelemesi standart iade süresinden ayrı ele alınır. Sipariş numarası zaten mevcut. Hasarlı ürün ve dış ambalaj fotoğraflarını iste. Kesin süre, iade veya değişim sözü verme."
+  }
+]

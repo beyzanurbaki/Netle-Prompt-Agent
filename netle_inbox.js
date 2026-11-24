@@ -55,6 +55,9 @@ function renderInboxList() {
       : entry?.busy ? 'İşleniyor' : entry?.error ? 'İşlem bekliyor'
       : entry?.hasDraft ? 'Taslak hazır' : entry?.questions ? 'Bilgi bekliyor'
       : entry?.readyForDraft || sample.followup ? 'Yanıt bekliyor' : 'Yeni';
+    button.dataset.tone = sent ? 'success'
+      : sample.delivery_state === 'uncertain' || needsOrderCheck(sample) || entry?.error ? 'warn'
+      : entry?.hasDraft ? 'brand' : entry?.busy || entry?.questions ? 'info' : '';
     if (sent) {
       const check = document.createElement('span');
       check.setAttribute('aria-hidden', 'true');
@@ -143,7 +146,7 @@ function renderInbox() {
     } else {
       const heading = document.createElement('strong');
       heading.textContent = 'NETLE';
-      turn.append(heading, '\n' + text);
+      turn.append(heading, text);
     }
     return turn;
   }));
