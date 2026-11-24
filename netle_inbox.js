@@ -13,6 +13,7 @@ const employeeResponses = {
 };
 let selectedRefundMail = null;
 let inboxMails = [];
+let showClosedCases = false;
 let inboxRefresh = null;
 let inboxPolling = null;
 
@@ -33,9 +34,20 @@ function mailCard(label, text, style) {
   return card;
 }
 
+function isClosedCase(mail) {
+  const entry = refundCases.get(mail.id);
+  return mail.delivery_state === 'sent' || (entry?.version === mailVersion(mail) && Boolean(entry.sent));
+}
+
 function renderInboxList() {
+  const visibleMails = inboxMails.filter(mail => isClosedCase(mail) === showClosedCases);
+  inbox('open').setAttribute('aria-pressed', String(!showClosedCases));
+  inbox('closed').setAttribute('aria-pressed', String(showClosedCases));
+  const empty = inbox('filter-empty');
+  empty.hidden = !inboxMails.length || Boolean(visibleMails.length);
+  empty.textContent = showClosedCases ? 'Kapanan iade talebi yok.' : 'Açık iade talebi yok.';
   const mail = selectedRefundMail;
-  inbox('list').replaceChildren(...inboxMails.map(sample => {
+  inbox('list').replaceChildren(...visibleMails.map(sample => {
     const saved = refundCases.get(sample.id);
     const entry = saved?.version === mailVersion(sample) ? saved : null;
     const button = document.createElement('button');
@@ -45,7 +57,7 @@ function renderInboxList() {
     const subject = document.createElement('strong');
     subject.textContent = sample.subject;
     const state = document.createElement('small');
-    const sent = entry?.sent || sample.delivery_state === 'sent';
+    const sent = isClosedCase(sample);
     state.textContent = sent ? 'Gönderildi'
       : sample.delivery_state === 'uncertain' ? 'Gönderim belirsiz'
       : needsOrderCheck(sample) ? 'Sipariş kontrolü gerekli'
@@ -310,6 +322,7 @@ function resetInbox() {
   clearInterval(inboxPolling);
   inboxPolling = null;
   refundCases.clear();
+  showClosedCases = false;
   selectedRefundMail = null;
   inboxMails = [];
   inboxRefresh = null;
@@ -346,6 +359,7 @@ async function refreshInbox({automatic = false} = {}) {
       }
     }
     selectedRefundMail = nextSelection;
+    if (nextSelection) showClosedCases = isClosedCase(nextSelection);
     inbox('source').textContent = 'Gmail · Netle İade';
     inbox('load-status').textContent = inboxMails.length ? '' : 'Bu etikette henüz mail yok.';
     if (!automatic || selectionChanged) {
@@ -362,6 +376,15 @@ async function refreshInbox({automatic = false} = {}) {
       inbox('refresh').disabled = false;
     }
   }
+}
+
+for (const [filter, closed] of [['open', false], ['closed', true]]) {
+  inbox(filter).addEventListener('click', () => {
+    if (showClosedCases === closed) return;
+    showClosedCases = closed;
+    selectedRefundMail = null;
+    renderInbox();
+  });
 }
 
 inbox('refresh').addEventListener('click', () => refreshInbox());
@@ -469,6 +492,9 @@ inbox('draft-panel').addEventListener('submit', async event => {
       body: entry.draft, thread: mail.thread
     });
     entry.sent = data.sent;
+    if (entry.sent && selectedRefundMail?.id === mail.id && refundCases.get(mail.id) === entry) {
+      showClosedCases = true;
+    }
     if (data.sent && !data.already_sent) entry.sentReply = entry.draft;
     entry.sendStatus = 'E-posta gönderildi.';
   } catch (error) {

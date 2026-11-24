@@ -62,6 +62,9 @@
     .inbox-grid form { padding: 0; margin: 12px 0 0; border: 0; }
     .inbox-grid small, .inbox-meta { color: #425d53; }
     .inbox-meta { margin: 0 0 12px; }
+    .inbox-filters { display: flex; gap: 6px; margin-bottom: 10px; }
+    .inbox-filters button { flex: 1; margin: 0; padding: 7px 8px; background: #f5f7f3; color: #172d27; }
+    .inbox-filters button[aria-pressed="true"] { background: #204f3e; color: #fff; }
     .inbox-mail { width: 100%; text-align: left; background: #f5f7f3; color: #172d27; padding: 12px; margin: 0 0 8px; border: 1px solid #d8e1d6; }
     .inbox-mail[aria-pressed="true"] { background: #e1eee4; border-color: #4e8c69; }
     .inbox-mail strong, .inbox-mail small { display: block; }
@@ -188,6 +191,11 @@
       </div>
       <p id="inbox-source" class="inbox-meta">Gmail · Netle İade</p>
       <p id="inbox-load-status" role="status" class="inbox-meta"></p>
+      <div class="inbox-filters" role="group" aria-label="İade talebi durumu">
+        <button id="inbox-open" type="button" aria-controls="inbox-list" aria-pressed="true">Açık</button>
+        <button id="inbox-closed" type="button" aria-controls="inbox-list" aria-pressed="false">Kapanan</button>
+      </div>
+      <p id="inbox-filter-empty" class="inbox-meta" hidden></p>
       <div id="inbox-list"></div>
     </section>
     <section aria-labelledby="inbox-conversation">
